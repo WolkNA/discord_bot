@@ -13,8 +13,8 @@ import requests
 from bs4 import BeautifulSoup
 import random
 
-TOKEN = 'OTc5MDg1MTAxNzMwMjUwODAy.GVXGAr.NGovEQieNeE1tTR5xVVEbyIfo1jfSDR5bXOr60'
-bot = commands.Bot(command_prefix=['ебанат: ', 'бот: ','-'])
+TOKEN = ''
+bot = commands.Bot(command_prefix=[':', 'bot: ','-'])
 
 #@commands.has_permissions(administrator=True) - для использования команд только админом
 
