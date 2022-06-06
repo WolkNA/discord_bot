@@ -29,7 +29,25 @@ source = ''
 global loop_mode
 loop_mode = False
 
+@bot.event
+async def on_ready():
+    game = discord.Game("music | -help")
+    await bot.change_presence(status=discord.Status.idle, activity=game)
 
+@bot.event
+async def on_message(message):
+    if message.author.bot: return
+    print(str(message.channel.name)+ ': '+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+    with open('./messages/black_list.json', 'r+') as bl_file:
+        black_list = json.load(bl_file)
+    black_list = black_list.lower()
+    full_message = message.content.lower()
+    full_message = full_message.split()
+    for msg in full_message:
+        if msg in black_list:
+            await message.delete()
+            return
+    else: await bot.process_commands(message)
 
 @bot.command(pass_context=True, brief="[N] - Clear [N] message from channel", description = "Clear [N](default 100) message from channel;\naliases = clr", aliases=['clr'])
 @commands.has_permissions(administrator=True)
