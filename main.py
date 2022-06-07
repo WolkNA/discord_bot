@@ -1,22 +1,16 @@
 import discord
-import time
 import asyncio
 import yt_dlp as youtube_dl
 from youtubesearchpython import VideosSearch
 import os
-from os import system
 from discord.ext import commands
 from discord.utils import get
-from discord import FFmpegPCMAudio
 import json
 import requests
-from bs4 import BeautifulSoup
 import random
 
 TOKEN = ''
-bot = commands.Bot(command_prefix=[':', 'bot: ','-'])
-
-#@commands.has_permissions(administrator=True) - для использования команд только админом
+bot = commands.Bot(command_prefix=['/', ':','-'])
 
 global music_queue
 music_queue = []
@@ -32,7 +26,7 @@ loop_mode = False
 @bot.event
 async def on_ready():
     game = discord.Game("music | -help")
-    await bot.change_presence(status=discord.Status.idle, activity=game)
+    await bot.change_presence(status=discord.Status.online, activity=game)
 
 @bot.event
 async def on_message(message):
@@ -48,6 +42,51 @@ async def on_message(message):
             await message.delete()
             return
     else: await bot.process_commands(message)
+
+async def preparation(ctx, voice, channel):
+    if len(music_queue)>0:
+        await ctx.send("Music added to queue", delete_after = 3)
+    else:
+        if not channel:
+            await ctx.send("You are not connected to a voice channel", delete_after = 3)
+            return
+        if voice and voice.is_connected():
+            pass
+        else:
+            voice = await channel.connect()
+            await ctx.send(f"Joined {channel}", delete_after = 3)
+            await bot.change_presence(status=discord.Status.online, activity=discord.Game(f'{channel}'))
+        if voice.is_playing()==False: await ctx.send("Getting everything ready, playing audio soon", delete_after = 3)
+        else: await ctx.send("Music added to queue", delete_after = 3)
+        print("Someone wants to play music let me get that ready for them...")
+    return voice
+
+async def send_message(ctx, cur_info):
+    await ctx.send(cur_info, delete_after = 60)
+
+async def check_voice(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice.is_playing() == True: 
+        members = ctx.guild.members
+        print(members)
+        print(len(members))
+        if len(members) == 1:
+            asyncio.run_coroutine_threadsafe(leave(ctx), bot.loop)
+
+def play_next(ctx):
+    if len(music_queue)>0:
+        source = music_queue.pop(0)
+        global cur_info
+        cur_info = info_queue.pop(0)
+        if loop_mode == True: 
+            music_queue.append(source)
+            info_queue.append(cur_info)
+        voice = get(bot.voice_clients, guild=ctx.guild)
+        try:
+            voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next(ctx))
+            asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
+            asyncio.run_coroutine_threadsafe(check_voice(ctx), bot.loop)
+        except: pass
 
 @bot.command(pass_context=True, brief="[N] - Clear [N] message from channel", description = "Clear [N](default 100) message from channel;\naliases = clr", aliases=['clr'])
 @commands.has_permissions(administrator=True)
@@ -89,6 +128,13 @@ async def hug(ctx):
     embed.set_image(url = json_data['link'])
     await ctx.send(embed = embed)
 
+@bot.command(pass_context=True, brief="Show random tiktok",description = "Show random tiktok;\naliases = tt, autism", aliases=['tt','autism'])
+@commands.has_permissions(administrator=True)
+async def tiktok(ctx):
+
+    pass
+
+
 @bot.command(pass_context=True, brief="[tag] - Show random image from rule34 by [tag]",description = "Show random image from rule34 by [tag];\naliases = 34, r34, hentai", aliases=['r34','34','hentai'])
 @commands.has_permissions(administrator=True)
 async def rule34(ctx, *tags):
@@ -108,7 +154,6 @@ async def rule34(ctx, *tags):
         for tag in tags:
             res_text+=tag+'%20'
         res_text+=black_list
-    print(res_text)
     response = requests.get(res_text)
     posts = response.json()
     l = len(posts)
@@ -211,7 +256,6 @@ async def rule34_whitelist_remove(ctx, *tags):
     else: await ctx.send('Tags not found', delete_after = 3)
 
 
-
 @bot.command(pass_context=True, brief="Bot join to your channel",description = "Bot join to your channel;\naliases = j, jo", aliases=['j', 'jo'])
 async def join(ctx):
     try: await ctx.message.delete()
@@ -226,29 +270,16 @@ async def join(ctx):
     else:
         voice = await channel.connect()
     await ctx.send(f"Joined {channel}", delete_after = 3)
+    await bot.change_presence(status=discord.Status.online, activity=discord.Game(f'{channel}'))
 
 @bot.command(pass_context=True, brief="(url) - Play a song by (url)",description = "Play a song by (url);\naliases = p, pl", aliases=['pl', 'p'])
 async def play(ctx, url: str):
     try: await ctx.message.delete()
     except: pass
-    if len(music_queue)>0:
-        channel = ctx.message.author.voice.channel
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        await ctx.send("Music added to queue", delete_after = 3)
-    else:
-        channel = ctx.message.author.voice.channel
-        if not channel:
-            await ctx.send("You are not connected to a voice channel", delete_after = 3)
-            return
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        if voice and voice.is_connected():
-            pass
-        else:
-            voice = await channel.connect()
-            await ctx.send(f"Joined {channel}", delete_after = 3)
-        if voice.is_playing()==False: await ctx.send("Getting everything ready, playing audio soon", delete_after = 3)
-        else: await ctx.send("Music added to queue", delete_after = 3)
-        print("Someone wants to play music let me get that ready for them...")
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = await preparation(ctx, voice, channel)
+
     if voice.is_playing() == False: 
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
@@ -267,25 +298,10 @@ async def play(ctx, url: str):
     with youtube_dl.YoutubeDL(ydl_opts) as ydl:
         ydl.download([url])
     music_queue.append(fname)
-    print (music_queue)
-    print('playing...\n')
     res = videosSearch.result()['result'][0]
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
     info_queue.append(playing_string)
-    def play_next():
-        if len(music_queue)>0:
-            source = music_queue.pop(0)
-            global cur_info
-            cur_info = info_queue.pop(0)
-            if loop_mode == True: 
-                music_queue.append(source)
-                info_queue.append(cur_info)
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            try:
-                voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next())
-                asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
-            except: pass
-    if voice.is_playing() == False: play_next()
+    if voice.is_playing() == False: play_next(ctx)
 
 @bot.command(pass_context=True, brief="Bot leave channel",description = "Bot leave channel;\naliases = l, le, lea", aliases=['l', 'le', 'lea'])
 async def leave(ctx):
@@ -345,31 +361,14 @@ async def resume(ctx):
     else:
         await ctx.send("Don't think I am in a voice channel", delete_after = 3)
 
-async def send_message(ctx, cur_info):
-    await ctx.send(cur_info, delete_after = 60)
-
 @bot.command(pass_context=True, brief="(song name) - Bot plays the first found music",description = "Bot plays the first found music;\naliases = pf, sf, playf", aliases=['sf', 'pf', 'playf'])
 async def playfirst(ctx, *args):
     try: await ctx.message.delete()
     except: pass
-    if len(music_queue)>0:
-        channel = ctx.message.author.voice.channel
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        await ctx.send("Music added to queue", delete_after = 3)
-    else:
-        channel = ctx.message.author.voice.channel
-        if not channel:
-            await ctx.send("You are not connected to a voice channel", delete_after = 3)
-            return
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        if voice and voice.is_connected():
-            pass
-        else:
-            voice = await channel.connect()
-            await ctx.send(f"Joined {channel}", delete_after = 3)
-        if voice.is_playing()==False: await ctx.send("Getting everything ready, playing audio soon", delete_after = 3)
-        else: await ctx.send("Music added to queue", delete_after = 3)
-        print("Someone wants to play music let me get that ready for them...")
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = await preparation(ctx, voice, channel)
+
     if voice.is_playing() == False: 
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
@@ -393,50 +392,19 @@ async def playfirst(ctx, *args):
         ydl.download([url])
     
     music_queue.append(fname)
-    print (music_queue)
-    print('playing...\n')
     res = videosSearch.result()['result'][0]
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
     info_queue.append(playing_string)
-
-    def play_next():
-        if len(music_queue)>0:
-            source = music_queue.pop(0)
-            global cur_info
-            cur_info = info_queue.pop(0)
-            if loop_mode == True: 
-                music_queue.append(source)
-                info_queue.append(cur_info)
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            try:
-                voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next())
-                asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
-            except: pass
-    if voice.is_playing() == False: play_next()
+    if voice.is_playing() == False: play_next(ctx)
 
 @bot.command(pass_context=True, brief="Skip current song",description = "Skip current song;\naliases = pass", aliases=['pass'])
 async def skip(ctx):
     try: await ctx.message.delete()
     except: pass
     if len(music_queue)>0:
-        channel = ctx.message.author.voice.channel
         voice = get(bot.voice_clients, guild=ctx.guild)
-    def play_next():
-        if len(music_queue)>0:
-            source = music_queue.pop(0)
-            global cur_info
-            cur_info = info_queue.pop(0)
-            if loop_mode == True: 
-                music_queue.append(source)
-                info_queue.append(cur_info)
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            try:
-                voice.stop()
-                voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next())
-                asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
-            except: pass
-        else: voice.pause()
-    if voice.is_playing() == True: play_next()
+        voice.stop()
+    if voice.is_playing() == True: play_next(ctx)
     await ctx.send('Music Skipped', delete_after = 3)
 
 @bot.command(pass_context=True, brief="Output current song",description = "Output current song;\naliases = ?", aliases=['?'])
@@ -553,24 +521,10 @@ async def playlist_play(ctx, playlist):
     if not os.path.exists('./playlists/'+str(playlist)):
         await ctx.send("Playlist doesn't exist", delete_after = 3)
         return
-    if len(music_queue)>0:
-        channel = ctx.message.author.voice.channel
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        await ctx.send("Music added to queue", delete_after = 3)
-    else:
-        channel = ctx.message.author.voice.channel
-        if not channel:
-            await ctx.send("You are not connected to a voice channel", delete_after = 3)
-            return
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        if voice and voice.is_connected():
-            pass
-        else:
-            voice = await channel.connect()
-            await ctx.send(f"Joined {channel}", delete_after = 3)
-        if voice.is_playing()==False: await ctx.send("Getting everything ready, playing audio soon", delete_after = 3)
-        else: await ctx.send("Music added to queue", delete_after = 3)
-        print("Someone wants to play music let me get that ready for them...")
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = await preparation(ctx, voice, channel)
+    
     dir = './playlists/'+playlist+'/'
     files = os.listdir(dir)
     for file in files:
@@ -580,20 +534,7 @@ async def playlist_play(ctx, playlist):
                 info_queue.append(playing_string)
         elif file.endswith('.webm'):
             music_queue.append(dir+str(file))
-    def play_next():
-        if len(music_queue)>0:
-            source = music_queue.pop(0)
-            global cur_info
-            cur_info = info_queue.pop(0)
-            if loop_mode == True: 
-                music_queue.append(source)
-                info_queue.append(cur_info)
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            try:
-                voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next())
-                asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
-            except: pass
-    if voice.is_playing() == False: play_next()
+    if voice.is_playing() == False: play_next(ctx)
 
 @bot.command(pass_context=True, brief="Displays current songs in queue",description = "Displays current songs in queue;\naliases = q", aliases=['q'])
 async def queue(ctx):
@@ -627,24 +568,10 @@ async def search(ctx, *args):
         
     @bot.command(pass_context=True, brief="Choose searched music", aliases=['-'])
     async def choose(ctx, choosed):
-        if len(music_queue)>0:
-            channel = ctx.message.author.voice.channel
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            await ctx.send("Music added to queue", delete_after = 3)
-        else:
-            channel = ctx.message.author.voice.channel
-            if not channel:
-                await ctx.send("You are not connected to a voice channel", delete_after = 3)
-                return
-            voice = get(bot.voice_clients, guild=ctx.guild)
-            if voice and voice.is_connected():
-                pass
-            else:
-                voice = await channel.connect()
-                await ctx.send(f"Joined {channel}", delete_after = 3)
-            if voice.is_playing()==False: await ctx.send("Getting everything ready, playing audio soon", delete_after = 3)
-            else: await ctx.send("Music added to queue", delete_after = 3)
-            print("Someone wants to play music let me get that ready for them...")
+        channel = ctx.message.author.voice.channel
+        voice = get(bot.voice_clients, guild=ctx.guild)
+        voice = await preparation(ctx, voice, channel)
+        
         if voice.is_playing() == False: 
             for file in os.listdir("./music/"):
                 if file.endswith(".webm"):
@@ -664,26 +591,10 @@ async def search(ctx, *args):
         with youtube_dl.YoutubeDL(ydl_opts) as ydl:
             ydl.download([url])
         music_queue.append(fname)
-
-        print (music_queue)
-        print('playing...\n')
         res = videosSearch.result()['result'][int(choosed)-1]
         playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
         info_queue.append(playing_string)
-
-        def play_next():
-            if len(music_queue)>0:
-                source = music_queue.pop(0)
-                global cur_info
-                cur_info = info_queue.pop(0)
-                if loop_mode == True: 
-                    music_queue.append(source)
-                    info_queue.append(cur_info)
-                voice = get(bot.voice_clients, guild=ctx.guild)
-                try:
-                    voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next())
-                    asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
-                except: pass
-        if voice.is_playing() == False: play_next()
+        if voice.is_playing() == False: play_next(ctx)
 
 bot.run(TOKEN)
+bot.change_presence(activity=discord.Game(name='music | -help'))
