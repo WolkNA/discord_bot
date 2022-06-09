@@ -64,14 +64,17 @@ async def preparation(ctx, voice, channel):
 async def send_message(ctx, cur_info):
     await ctx.send(cur_info, delete_after = 60)
 
-async def check_voice(ctx):
-    voice = get(bot.voice_clients, guild=ctx.guild)
+async def check_voice(ctx, voice):
+    res = True
     if voice.is_playing() == True: 
         members = ctx.guild.members
         print(members)
         print(len(members))
         if len(members) == 1:
-            asyncio.run_coroutine_threadsafe(leave(ctx), bot.loop)
+            await leave(ctx)
+            await ctx.send('Failed to find users in the channel\nIf you are on a voice channel, please re-enter', delete_after = 10)
+            res = False
+    if res == True: await send_message(ctx,cur_info)
 
 def play_next(ctx):
     if len(music_queue)>0:
@@ -84,7 +87,6 @@ def play_next(ctx):
         voice = get(bot.voice_clients, guild=ctx.guild)
         try:
             voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next(ctx))
-            asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
             asyncio.run_coroutine_threadsafe(check_voice(ctx), bot.loop)
         except: pass
 
