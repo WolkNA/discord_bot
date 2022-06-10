@@ -1,3 +1,4 @@
+from xml.etree.ElementTree import TreeBuilder
 import discord
 import asyncio
 import yt_dlp as youtube_dl
@@ -10,6 +11,8 @@ import requests
 import random
 
 TOKEN = ''
+intents = discord.Intents.default()
+intents.members = True
 bot = commands.Bot(command_prefix=['/', ':','-'])
 
 global music_queue
@@ -23,10 +26,11 @@ source = ''
 global loop_mode
 loop_mode = False
 
+
 @bot.event
 async def on_ready():
-    game = discord.Game("music | -help")
-    await bot.change_presence(status=discord.Status.online, activity=game)
+    act = discord.Activity(name='в текстовые каналы', type=3)
+    await bot.change_presence(status=discord.Status.online, activity=act)
 
 @bot.event
 async def on_message(message):
@@ -62,33 +66,48 @@ async def preparation(ctx, voice, channel):
     return voice
 
 async def send_message(ctx, cur_info):
-    await ctx.send(cur_info, delete_after = 60)
+    global cur_message
+    cur_message = await ctx.send(cur_info)
 
-async def check_voice(ctx, voice):
+
+async def check_voice(ctx, voice, last = False):
     res = True
+    if len(music_queue)==0 and last == True:
+        try:
+            msg = await ctx.channel.fetch_message(cur_message.id)
+            await msg.delete()
+        except: pass
+        return
     if voice.is_playing() == True: 
         members = ctx.guild.members
-        print(members)
-        print(len(members))
         if len(members) == 1:
             await leave(ctx)
             await ctx.send('Failed to find users in the channel\nIf you are on a voice channel, please re-enter', delete_after = 10)
             res = False
-    if res == True: await send_message(ctx,cur_info)
+    if res == True: 
+        try:
+            msg = await ctx.channel.fetch_message(cur_message.id)
+            await msg.delete()
+        except: pass
+        await send_message(ctx,cur_info)
 
 def play_next(ctx):
+    voice = get(bot.voice_clients, guild=ctx.guild)
     if len(music_queue)>0:
-        source = music_queue.pop(0)
+        try: source = music_queue.pop(0)
+        except: pass
         global cur_info
-        cur_info = info_queue.pop(0)
+        try: cur_info = info_queue.pop(0)
+        except: cur_info = ''
         if loop_mode == True: 
             music_queue.append(source)
             info_queue.append(cur_info)
-        voice = get(bot.voice_clients, guild=ctx.guild)
         try:
-            voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next(ctx))
-            asyncio.run_coroutine_threadsafe(check_voice(ctx), bot.loop)
+            voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next(ctx)) 
+            asyncio.run_coroutine_threadsafe(check_voice(ctx, voice), bot.loop)
+            #asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
         except: pass
+    else: asyncio.run_coroutine_threadsafe(check_voice(ctx, voice, True), bot.loop)
 
 @bot.command(pass_context=True, brief="[N] - Clear [N] message from channel", description = "Clear [N](default 100) message from channel;\naliases = clr", aliases=['clr'])
 @commands.has_permissions(administrator=True)
@@ -129,13 +148,6 @@ async def hug(ctx):
     embed = discord.Embed(color = 0xff9900, title = 'Hug')
     embed.set_image(url = json_data['link'])
     await ctx.send(embed = embed)
-
-@bot.command(pass_context=True, brief="Show random tiktok",description = "Show random tiktok;\naliases = tt, autism", aliases=['tt','autism'])
-@commands.has_permissions(administrator=True)
-async def tiktok(ctx):
-
-    pass
-
 
 @bot.command(pass_context=True, brief="[tag] - Show random image from rule34 by [tag]",description = "Show random image from rule34 by [tag];\naliases = 34, r34, hentai", aliases=['r34','34','hentai'])
 @commands.has_permissions(administrator=True)
@@ -321,6 +333,7 @@ async def leave(ctx):
         info_queue = []
         await voice.disconnect()
         await ctx.send(f"Left {channel}", delete_after = 3)
+        await on_ready()
     else:
         await ctx.send("Don't think I am in a voice channel", delete_after = 3)
 
@@ -400,14 +413,33 @@ async def playfirst(ctx, *args):
     if voice.is_playing() == False: play_next(ctx)
 
 @bot.command(pass_context=True, brief="Skip current song",description = "Skip current song;\naliases = pass", aliases=['pass'])
-async def skip(ctx):
+async def skip(ctx, count = '1'):
     try: await ctx.message.delete()
     except: pass
-    if len(music_queue)>0:
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        voice.stop()
+    if count == 'all':
+        count = len(music_queue)+1
+    try: count = int(count)
+    except: 
+        await ctx.send('Wrong argument',delete_after = 3)
+        return
+    c1 = count
+    if loop_mode==True:
+        while count>1:
+            music_queue.append(music_queue.pop(0))
+            info_queue.append(info_queue.pop(0))
+            count-=1
+    elif loop_mode==False:
+        if count>len(music_queue)+1:
+            count = len(music_queue)+1
+            c1 = count
+        while count>1:
+            music_queue.pop(0)
+            info_queue.pop(0)
+            count-=1
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice.stop()
     if voice.is_playing() == True: play_next(ctx)
-    await ctx.send('Music Skipped', delete_after = 3)
+    await ctx.send('Music Skipped ' + str(c1) + ' times', delete_after = 3)
 
 @bot.command(pass_context=True, brief="Output current song",description = "Output current song;\naliases = ?", aliases=['?'])
 async def now(ctx, *args):
@@ -539,21 +571,40 @@ async def playlist_play(ctx, playlist):
     if voice.is_playing() == False: play_next(ctx)
 
 @bot.command(pass_context=True, brief="Displays current songs in queue",description = "Displays current songs in queue;\naliases = q", aliases=['q'])
-async def queue(ctx):
+async def queue(ctx, arg = 'True'):
     try: await ctx.message.delete()
     except: pass
+    if arg == 'all' or arg =='full': param = False
+    else:param = True
+    all_info =''
     if cur_info: 
-        try: await ctx.send('1. '+cur_info.lstrip('Now playing: '), delete_after = 60)
+        try: 
+            if param == False: await ctx.send('1. '+cur_info.split('Now playing: ')[1]+'\n',delete_after =120)
+            else: all_info+='1. '+cur_info.split('Now playing: ')[1].split('\n')[0]+'\n'
         except: 
             await ctx.send('Music is not playing', delete_after = 3)
             return
     else:
         await ctx.send('Music is not playing', delete_after = 3)
-    i = 2
-    for info in info_queue:
-        info = str(i) + '. ' + info.lstrip('Now playing: ')
-        await ctx.send(info, delete_after = 60)
-        i+=1
+    
+    if param == False:
+        i = 2
+        for info in info_queue:
+            info = str(i) + '. ' + info.split('Now playing: ')[1]
+            i+=1
+            await ctx.send(info, delete_after = 120)
+    elif param == True: 
+        i = 2
+        for info in info_queue:
+            info = str(i) + '. ' + info.split('Now playing: ')[1].split('\n')[0]+'\n'
+            i+=1
+            all_info+=info
+            if len(all_info)>1700:
+                await ctx.send(all_info, delete_after = 120)
+                all_info = ''
+        await ctx.send(all_info, delete_after = 120)
+        
+
 
 @bot.command(pass_context=True, brief="(name) - Bot searchs music by (name)",description = "Bot searchs music by (name);\naliases = se, find", aliases=['se', 'find'])
 async def search(ctx, *args):
@@ -598,5 +649,5 @@ async def search(ctx, *args):
         info_queue.append(playing_string)
         if voice.is_playing() == False: play_next(ctx)
 
+
 bot.run(TOKEN)
-bot.change_presence(activity=discord.Game(name='music | -help'))
