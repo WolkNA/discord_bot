@@ -1,4 +1,3 @@
-from xml.etree.ElementTree import TreeBuilder
 import discord
 import asyncio
 import yt_dlp as youtube_dl
@@ -9,10 +8,9 @@ from discord.utils import get
 import json
 import requests
 import random
+import datetime
 
-TOKEN = ''
-intents = discord.Intents.default()
-intents.members = True
+TOKEN=''
 bot = commands.Bot(command_prefix=['/', ':','-'])
 
 global music_queue
@@ -35,6 +33,17 @@ async def on_ready():
 @bot.event
 async def on_message(message):
     if message.author.bot: return
+    now = datetime.datetime.now()
+    str_date = str(now.year)+'#'+str(now.month)+'#'+str(now.day)+'.txt'
+    filename = './logs/'+str(message.channel.name)+'/'+str_date
+    if os.path.exists(filename):
+        with open(filename, 'a+') as log_file:
+            log_file.write('\n'+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+    else: 
+        if os.path.exists('./logs/'+str(message.channel.name)): pass
+        else: os.mkdir('./logs/'+str(message.channel.name))
+        with open(filename, 'w+') as log_file:
+            log_file.write(str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
     print(str(message.channel.name)+ ': '+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
     with open('./messages/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
@@ -105,7 +114,6 @@ def play_next(ctx):
         try:
             voice.play(discord.FFmpegPCMAudio(source = source), after = lambda e: play_next(ctx)) 
             asyncio.run_coroutine_threadsafe(check_voice(ctx, voice), bot.loop)
-            #asyncio.run_coroutine_threadsafe(send_message(ctx,cur_info), bot.loop)
         except: pass
     else: asyncio.run_coroutine_threadsafe(check_voice(ctx, voice, True), bot.loop)
 
@@ -119,35 +127,35 @@ async def clear(ctx, amount = 100):
 
 @bot.command(pass_context=True, brief="Show random meme",description = "Show random meme", aliases=[])
 async def meme(ctx):
+    try: await ctx.message.delete()
+    except: pass
     response = requests.get('https://some-random-api.ml/meme')
     json_data = json.loads(response.text)
-    embed = discord.Embed(color = 0xff9900, title = 'Random Meme')
-    embed.set_image(url = json_data['image'])
-    await ctx.send(embed = embed)
+    await ctx.send(json_data['link'])
 
 @bot.command(pass_context=True, brief="Show random wink anime gif",description = "Show random wink anime gif", aliases=[])
 async def wink(ctx): 
+    try: await ctx.message.delete()
+    except: pass
     response = requests.get('https://some-random-api.ml/animu/wink')
     json_data = json.loads(response.text)
-    embed = discord.Embed(color = 0xff9900, title = 'Wink')
-    embed.set_image(url = json_data['link'])
-    await ctx.send(embed = embed)
+    await ctx.send(json_data['link'])
 
 @bot.command(pass_context=True, brief="Show random pet anime gif",description = "Show random pet anime gif", aliases=[])
 async def pet(ctx): 
+    try: await ctx.message.delete()
+    except: pass
     response = requests.get('https://some-random-api.ml/animu/pat')
     json_data = json.loads(response.text)
-    embed = discord.Embed(color = 0xff9900, title = 'Pet')
-    embed.set_image(url = json_data['link'])
-    await ctx.send(embed = embed)
+    await ctx.send(json_data['link'])
 
 @bot.command(pass_context=True, brief="Show random hug anime gif",description = "Show random hug anime gif", aliases=[])
-async def hug(ctx): 
+async def hug(ctx):
+    try: await ctx.message.delete()
+    except: pass 
     response = requests.get('https://some-random-api.ml/animu/hug')
     json_data = json.loads(response.text)
-    embed = discord.Embed(color = 0xff9900, title = 'Hug')
-    embed.set_image(url = json_data['link'])
-    await ctx.send(embed = embed)
+    await ctx.send(json_data['link'])
 
 @bot.command(pass_context=True, brief="[tag] - Show random image from rule34 by [tag]",description = "Show random image from rule34 by [tag];\naliases = 34, r34, hentai", aliases=['r34','34','hentai'])
 @commands.has_permissions(administrator=True)
@@ -570,7 +578,7 @@ async def playlist_play(ctx, playlist):
             music_queue.append(dir+str(file))
     if voice.is_playing() == False: play_next(ctx)
 
-@bot.command(pass_context=True, brief="Displays current songs in queue",description = "Displays current songs in queue;\naliases = q", aliases=['q'])
+@bot.command(pass_context=True, brief="[all] Displays current songs in queue",description = "Displays current songs in queue. If you need to show full info: use queue all/full;\naliases = q", aliases=['q'])
 async def queue(ctx, arg = 'True'):
     try: await ctx.message.delete()
     except: pass
