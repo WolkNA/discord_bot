@@ -32,19 +32,26 @@ async def on_ready():
 
 @bot.event
 async def on_message(message):
-    if message.author.bot: return
     now = datetime.datetime.now()
     str_date = str(now.year)+'#'+str(now.month)+'#'+str(now.day)+'.txt'
     filename = './logs/'+str(message.channel.name)+'/'+str_date
+    print(str(now.strftime('%H:%M:%S'))+'\t'+str(message.channel.name)+ ': '+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+
     if os.path.exists(filename):
-        with open(filename, 'a+') as log_file:
-            log_file.write('\n'+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+        with open(filename, 'a+', encoding='utf-8') as log_file:
+            log_file.write('\n'+str(now.strftime('%H:%M:%S'))+'\t'+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+            for a in message.attachments:
+                log_file.write('\t'+str(a))
+                print (a.url)
     else: 
         if os.path.exists('./logs/'+str(message.channel.name)): pass
         else: os.mkdir('./logs/'+str(message.channel.name))
-        with open(filename, 'w+') as log_file:
-            log_file.write(str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
-    print(str(message.channel.name)+ ': '+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+        with open(filename, 'w+', encoding='utf-8') as log_file:
+            log_file.write(str(now.strftime('%H:%M:%S'))+'\t'+str(message.author.name) +' | ' + str(message.author.nick) +': ' + str(message.content))
+            for a in message.attachments:
+                log_file.write('\t'+str(a))
+                print (a.url)
+    if message.author.bot: return
     with open('./messages/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
     black_list = black_list.lower()
