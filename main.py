@@ -29,6 +29,30 @@ loop_mode = False
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
+    
+   
+@bot.event
+async def on_voice_state_update(member, before, after):
+    if member.bot:
+        return
+    guild = getattr(before.channel, 'guild', None)
+    if guild is None:
+        return
+    voice = guild.voice_client
+    if voice is None or not voice.is_connected():
+        return
+    
+    if len(voice.channel.members) == 1:
+        print('diconnect')
+        global cur_info
+        cur_info = ''
+        global music_queue
+        music_queue = []
+        global info_queue
+        info_queue = []
+        await voice.disconnect()
+        await on_ready()
+        
 
 @bot.event
 async def on_message(message):
