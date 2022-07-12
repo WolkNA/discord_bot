@@ -22,15 +22,16 @@ cur_info = ''
 global source
 source = ''
 global loop_mode
-loop_mode = False
+with open('./loop_mode.json', 'r+') as lm_file:
+    loop_mode = json.load(lm_file)
 
 
 @bot.event
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
-    
-   
+
+
 @bot.event
 async def on_voice_state_update(member, before, after):
     if member.bot:
@@ -52,7 +53,7 @@ async def on_voice_state_update(member, before, after):
         info_queue = []
         await voice.disconnect()
         await on_ready()
-        
+
 
 @bot.event
 async def on_message(message):
@@ -187,6 +188,19 @@ async def hug(ctx):
     response = requests.get('https://some-random-api.ml/animu/hug')
     json_data = json.loads(response.text)
     await ctx.send(json_data['link'])
+
+@bot.command(pass_context=True, brief="What is this?",description = "What is this?;\naliases = ", aliases=['trap','трап'])
+async def what(ctx):
+    try: await ctx.message.delete()
+    except: pass
+    res_text = 'https://safebooru.org/index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags=trap%20-disney%20-cartoon_network%20-troll%20-no_humans'
+    response = requests.get(res_text)
+    posts = response.json()
+    l = len(posts)
+    number = random.randint(0,l-1)
+    await ctx.send('https://safebooru.org//images/'+str(posts[number]['directory'])+'/'+str(posts[number]['image']))
+
+
 
 @bot.command(pass_context=True, brief="[tag] - Show random image from rule34 by [tag]",description = "Show random image from rule34 by [tag];\naliases = 34, r34, hentai", aliases=['r34','34','hentai'])
 @commands.has_permissions(administrator=True)
@@ -333,7 +347,7 @@ async def play(ctx, url: str):
     voice = get(bot.voice_clients, guild=ctx.guild)
     voice = await preparation(ctx, voice, channel)
 
-    if voice.is_playing() == False: 
+    if voice == False or voice.is_playing() == False:
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
@@ -423,7 +437,7 @@ async def playfirst(ctx, *args):
     voice = get(bot.voice_clients, guild=ctx.guild)
     voice = await preparation(ctx, voice, channel)
 
-    if voice.is_playing() == False: 
+    if voice == False or voice.is_playing() == False: 
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
@@ -494,10 +508,19 @@ async def loop(ctx, *args):
     except: pass
     if loop_mode == True: 
         loop_mode = False
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
         await ctx.send('Loop mode has been disabled', delete_after = 3)
     elif loop_mode == False: 
         loop_mode = True
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
         await ctx.send('Loop mode has been enabled', delete_after = 3)
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_playing():
+        if music_queue[-1]!=source:
+            info_queue.append(cur_info)
+            music_queue.append(source)
 
 @bot.command(pass_context=True, brief="(name) - Create playlist named (name)",description = "Create playlist named (name);\naliases = pl_create, create_playlist", aliases=['pl_create','create_playlist'])
 @commands.has_permissions(administrator=True)
@@ -573,7 +596,7 @@ async def playlist_remove_song(ctx, playlist, number):
             os.rename('./playlists/'+str(playlist)+'/'+filename+'.'+fileext, './playlists/'+str(playlist)+'/'+str(int(filename)-1)+'.'+fileext)
 
 @bot.command(pass_context=True, brief="(name) - Show info about playlist named (name)",description = "Show info about playlist named (name);\naliases = pl_i, pl_info", aliases=['pl_i','pl_info'])
-async def playlist_info(ctx, playlist):
+async def playlist_info(ctx, playlist, arg = 'not'):
     try: await ctx.message.delete()
     except: pass
     if not os.path.exists('./playlists/'+str(playlist)):
@@ -584,7 +607,8 @@ async def playlist_info(ctx, playlist):
         if file.endswith(".info"):
             with open('./playlists/'+str(playlist)+'/'+file,'r', encoding="utf-8") as file:
                 fname = os.path.splitext(file.name)[0].rsplit('/')[-1]
-                out_string = fname +'. ' + file.read()
+                if arg == 'all' or arg == 'full': out_string = fname +'. ' + file.read()
+                else: out_string = fname +'. ' + file.read().split('\n')[0]
                 await ctx.send(out_string, delete_after = 60)
 
 @bot.command(pass_context=True, brief="(name) - Move playlist named (name) to queue",description = "Move playlist named (name) to queue;\naliases = pl_p", aliases=['pl_p'])
@@ -625,6 +649,7 @@ async def queue(ctx, arg = 'True'):
             return
     else:
         await ctx.send('Music is not playing', delete_after = 3)
+        return
     
     if param == False:
         i = 2
@@ -663,14 +688,13 @@ async def search(ctx, *args):
         channel = ctx.message.author.voice.channel
         voice = get(bot.voice_clients, guild=ctx.guild)
         voice = await preparation(ctx, voice, channel)
-        
-        if voice.is_playing() == False: 
+    
+        if voice == False or voice.is_playing() == False: 
             for file in os.listdir("./music/"):
                 if file.endswith(".webm"):
                     os.remove('./music/'+file)
-        
+    
         url = videosSearch.result()['result'][int(choosed)-1]['link']
-
         def fname_gen(i):
             fname = './music/'+str(i)+'.webm'
             if os.path.isfile(fname) == False: return fname
