@@ -347,7 +347,7 @@ async def play(ctx, url: str):
     voice = get(bot.voice_clients, guild=ctx.guild)
     voice = await preparation(ctx, voice, channel)
 
-    if voice == False or voice.is_playing() == False:
+    if voice.is_playing() == False:
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
@@ -437,7 +437,7 @@ async def playfirst(ctx, *args):
     voice = get(bot.voice_clients, guild=ctx.guild)
     voice = await preparation(ctx, voice, channel)
 
-    if voice == False or voice.is_playing() == False: 
+    if voice.is_playing() == False: 
         for file in os.listdir("./music/"):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
@@ -689,7 +689,7 @@ async def search(ctx, *args):
         voice = get(bot.voice_clients, guild=ctx.guild)
         voice = await preparation(ctx, voice, channel)
     
-        if voice == False or voice.is_playing() == False: 
+        if voice.is_playing() == False: 
             for file in os.listdir("./music/"):
                 if file.endswith(".webm"):
                     os.remove('./music/'+file)
