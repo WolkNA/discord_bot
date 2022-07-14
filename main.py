@@ -137,12 +137,15 @@ async def check_voice(ctx, voice, last = False):
         try:
             msg = await ctx.channel.fetch_message(cur_message.id)
             await msg.delete()
+            loop_msg = await ctx.channel.fetch_message(loop_message.id)
+            await loop_msg.delete()
         except: pass
         await send_message(ctx,cur_info)
 
 def play_next(ctx):
     voice = get(bot.voice_clients, guild=ctx.guild)
     if len(music_queue)>0:
+        global source
         try: source = music_queue.pop(0)
         except: pass
         global cur_info
@@ -519,7 +522,6 @@ async def loop(ctx, *args):
         loop_mode = False
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        #await ctx.send('Loop mode has been disabled', delete_after = 3)
         loop_msg = await ctx.channel.fetch_message(loop_message.id)
         await loop_msg.delete()
         loop_message = await ctx.send('Loop mode disabled')
@@ -527,7 +529,6 @@ async def loop(ctx, *args):
         loop_mode = True
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        #await ctx.send('Loop mode has been enabled', delete_after = 3)
         loop_msg = await ctx.channel.fetch_message(loop_message.id)
         await loop_msg.delete()
         loop_message = await ctx.send('Loop mode enabled')
@@ -537,7 +538,7 @@ async def loop(ctx, *args):
             if music_queue[-1]!=source:
                 info_queue.append(cur_info)
                 music_queue.append(source)
-        if not music_queue:
+        elif not music_queue:
             info_queue.append(cur_info)
             music_queue.append(source)
 
