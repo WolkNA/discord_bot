@@ -109,6 +109,12 @@ async def preparation(ctx, voice, channel):
 async def send_message(ctx, cur_info):
     global cur_message
     cur_message = await ctx.send(cur_info)
+    global loop_message
+    if loop_mode == True: 
+        loop_message = await ctx.send('Loop mode enabled')
+    elif loop_mode == False:
+        loop_message = await ctx.send('Loop mode disabled')
+
 
 
 async def check_voice(ctx, voice, last = False):
@@ -117,6 +123,8 @@ async def check_voice(ctx, voice, last = False):
         try:
             msg = await ctx.channel.fetch_message(cur_message.id)
             await msg.delete()
+            loop_msg = await ctx.channel.fetch_message(loop_message.id)
+            await loop_msg.delete()
         except: pass
         return
     if voice.is_playing() == True: 
@@ -504,23 +512,36 @@ async def now(ctx, *args):
 @bot.command(pass_context=True, brief="Enable/Disable loop mode",description = "Enable/Disable loop mode;\naliases = cycle", aliases=['cycle'])
 async def loop(ctx, *args):
     global loop_mode
+    global loop_message
     try: await ctx.message.delete()
     except: pass
     if loop_mode == True: 
         loop_mode = False
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        await ctx.send('Loop mode has been disabled', delete_after = 3)
+        #await ctx.send('Loop mode has been disabled', delete_after = 3)
+        loop_msg = await ctx.channel.fetch_message(loop_message.id)
+        await loop_msg.delete()
+        loop_message = await ctx.send('Loop mode disabled')
     elif loop_mode == False: 
         loop_mode = True
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        await ctx.send('Loop mode has been enabled', delete_after = 3)
+        #await ctx.send('Loop mode has been enabled', delete_after = 3)
+        loop_msg = await ctx.channel.fetch_message(loop_message.id)
+        await loop_msg.delete()
+        loop_message = await ctx.send('Loop mode enabled')
     voice = get(bot.voice_clients, guild=ctx.guild)
     if voice and voice.is_playing():
-        if music_queue[-1]!=source:
+        if music_queue:
+            if music_queue[-1]!=source:
+                info_queue.append(cur_info)
+                music_queue.append(source)
+        if not music_queue:
             info_queue.append(cur_info)
             music_queue.append(source)
+
+
 
 @bot.command(pass_context=True, brief="(name) - Create playlist named (name)",description = "Create playlist named (name);\naliases = pl_create, create_playlist", aliases=['pl_create','create_playlist'])
 @commands.has_permissions(administrator=True)
