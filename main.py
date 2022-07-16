@@ -9,6 +9,7 @@ import json
 import requests
 import random
 import datetime
+from natsort import natsorted
 
 TOKEN=''
 bot = commands.Bot(command_prefix=['/', ':','-'])
@@ -366,7 +367,7 @@ async def play(ctx, url: str):
     voice = await preparation(ctx, voice, channel)
 
     if voice.is_playing() == False:
-        for file in os.listdir("./music/"):
+        for file in natsorted(os.listdir("./music/")):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
     url = url.rsplit('&')[0]
@@ -456,7 +457,7 @@ async def playfirst(ctx, *args):
     voice = await preparation(ctx, voice, channel)
 
     if voice.is_playing() == False: 
-        for file in os.listdir("./music/"):
+        for file in natsorted(os.listdir("./music/")):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
     message = ''
@@ -570,7 +571,7 @@ async def playlists(ctx):
     try: await ctx.message.delete()
     except: pass
     dirname = './playlists'
-    dirs = os.listdir(dirname)
+    dirs = natsorted(os.listdir(dirname))
     out_string = 'Current playlist count: ' + str(len(dirs))
     for dir in dirs:
         out_string+='\n'+str(dir)
@@ -618,7 +619,7 @@ async def playlist_remove_song(ctx, playlist, number):
     filename1 = './playlists/'+str(playlist) + '/'+str(number) + '.info'
     if os.path.isfile(filename): os.remove(filename)
     if os.path.isfile(filename1):os.remove(filename1)
-    for file in os.listdir('./playlists/'+str(playlist)):
+    for file in natsorted(os.listdir('./playlists/'+str(playlist))):
         filename = file.rsplit('.')[0]
         fileext = file.rsplit('.')[1]
         if int(filename)>int(number):
@@ -632,13 +633,17 @@ async def playlist_info(ctx, playlist, arg = 'not'):
         await ctx.send("Playlist doesn't exist", delete_after = 3)
         return
     out_string =''
-    for file in os.listdir('./playlists/'+str(playlist)):
+    info = ''
+    for file in natsorted(os.listdir('./playlists/'+str(playlist))):
         if file.endswith(".info"):
             with open('./playlists/'+str(playlist)+'/'+file,'r', encoding="utf-8") as file:
                 fname = os.path.splitext(file.name)[0].rsplit('/')[-1]
                 if arg == 'all' or arg == 'full': out_string = fname +'. ' + file.read()
                 else: out_string = fname +'. ' + file.read().split('\n')[0]
-                await ctx.send(out_string, delete_after = 60)
+                info+=out_string+'\n'
+                if len(info)>1300: 
+                    await ctx.send(info, delete_after = 60)
+                    info = ''
 
 @bot.command(pass_context=True, brief="(name) - Move playlist named (name) to queue",description = "Move playlist named (name) to queue;\naliases = pl_p", aliases=['pl_p'])
 async def playlist_play(ctx, playlist):
@@ -652,7 +657,7 @@ async def playlist_play(ctx, playlist):
     voice = await preparation(ctx, voice, channel)
     
     dir = './playlists/'+playlist+'/'
-    files = os.listdir(dir)
+    files = natsorted(os.listdir(dir))
     for file in files:
         if file.endswith('.info'):
             with open(dir+file,'r', encoding="utf-8") as f:
@@ -722,7 +727,7 @@ async def choose(ctx, choosed):
     voice = await preparation(ctx, voice, channel)
 
     if voice.is_playing() == False: 
-        for file in os.listdir("./music/"):
+        for file in natsorted(os.listdir("./music/")):
             if file.endswith(".webm"):
                 os.remove('./music/'+file)
     global videosSearch
