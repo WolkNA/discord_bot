@@ -24,6 +24,8 @@ source = ''
 global loop_mode
 with open('./loop_mode.json', 'r+') as lm_file:
     loop_mode = json.load(lm_file)
+global videosSearch
+videosSearch = []
 
 
 @bot.event
@@ -57,6 +59,11 @@ async def on_voice_state_update(member, before, after):
 
 @bot.event
 async def on_message(message):
+    if type(message.channel)==discord.DMChannel:
+        if message.author==bot.user:
+            return
+        await message.author.send("I didn't work here, baka")
+        return
     now = datetime.datetime.now()
     str_date = str(now.year)+'#'+str(now.month)+'#'+str(now.day)+'.txt'
     filename = './logs/'+str(message.channel.name)+'/'+str_date
@@ -700,39 +707,42 @@ async def search(ctx, *args):
     for arg in args:
         message+=str(arg)+' '
     l = 5
+    global videosSearch
     videosSearch = VideosSearch(message, limit = l)
     for i in range (0,l):
         res = videosSearch.result()['result'][i]
         await ctx.send(str(i+1) + ". "+ str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(res['link']), delete_after = 60)
         
-    @bot.command(pass_context=True, brief="Choose searched music", aliases=['-'])
-    async def choose(ctx, choosed):
-        channel = ctx.message.author.voice.channel
-        voice = get(bot.voice_clients, guild=ctx.guild)
-        voice = await preparation(ctx, voice, channel)
-    
-        if voice.is_playing() == False: 
-            for file in os.listdir("./music/"):
-                if file.endswith(".webm"):
-                    os.remove('./music/'+file)
-    
-        url = videosSearch.result()['result'][int(choosed)-1]['link']
-        def fname_gen(i):
-            fname = './music/'+str(i)+'.webm'
-            if os.path.isfile(fname) == False: return fname
-            else: return fname_gen(i+1)
-        fname = fname_gen(1)
-        ydl_opts = {
-            'format': 'bestaudio/best',
-            'outtmpl': fname
-        }
-        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([url])
-        music_queue.append(fname)
-        res = videosSearch.result()['result'][int(choosed)-1]
-        playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
-        info_queue.append(playing_string)
-        if voice.is_playing() == False: play_next(ctx)
+@bot.command(pass_context=True, brief="Choose searched music", aliases=['-'])
+async def choose(ctx, choosed):
+    try: await ctx.message.delete()
+    except: pass
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = await preparation(ctx, voice, channel)
+
+    if voice.is_playing() == False: 
+        for file in os.listdir("./music/"):
+            if file.endswith(".webm"):
+                os.remove('./music/'+file)
+    global videosSearch
+    url = videosSearch.result()['result'][int(choosed)-1]['link']
+    def fname_gen(i):
+        fname = './music/'+str(i)+'.webm'
+        if os.path.isfile(fname) == False: return fname
+        else: return fname_gen(i+1)
+    fname = fname_gen(1)
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': fname
+    }
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    music_queue.append(fname)
+    res = videosSearch.result()['result'][int(choosed)-1]
+    playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
+    info_queue.append(playing_string)
+    if voice.is_playing() == False: play_next(ctx)
 
 
 bot.run(TOKEN)
