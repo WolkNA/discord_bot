@@ -27,6 +27,8 @@ with open('./loop_mode.json', 'r+') as lm_file:
     loop_mode = json.load(lm_file)
 global videosSearch
 videosSearch = []
+global cur_volume
+cur_volume = 1.0
 
 
 @bot.event
@@ -95,6 +97,7 @@ async def on_message(message):
             await message.delete()
             return
     else: await bot.process_commands(message)
+
 
 async def preparation(ctx, voice, channel):
     if len(music_queue)>0:
@@ -167,6 +170,30 @@ def play_next(ctx):
             asyncio.run_coroutine_threadsafe(check_voice(ctx, voice), bot.loop)
         except: pass
     else: asyncio.run_coroutine_threadsafe(check_voice(ctx, voice, True), bot.loop)
+
+
+@bot.command(pass_context=True, brief="[N] - Set volume as [N](0-100)", description = "Set volume as [N](0-100);\naliases = vol", aliases=['vol'])
+async def volume(ctx, new_volume = 100):
+    global cur_volume
+    try: await ctx.message.delete()
+    except: pass
+    try: new_volume = int(new_volume)
+    except: return
+    if new_volume < 0: new_volume = 0
+    elif new_volume > 100: new_volume = 100
+    multiple = 1.0/cur_volume
+    new_volume = float(new_volume)/100
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_playing():
+        #voice.source.volume = number
+        print(str(multiple)+' * ' + str(new_volume))
+        voice.source = discord.PCMVolumeTransformer(voice.source, volume=multiple)
+        voice.source = discord.PCMVolumeTransformer(voice.source, volume=new_volume)
+        cur_volume = new_volume
+        await ctx.send('Volume set as '+str(new_volume*100), delete_after = 3)
+    else:
+        await ctx.send('Music is not playing', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="[N] - Clear [N] message from channel", description = "Clear [N](default 100) message from channel;\naliases = clr", aliases=['clr'])
 @commands.has_permissions(administrator=True)
@@ -638,12 +665,15 @@ async def playlist_info(ctx, playlist, arg = 'not'):
         if file.endswith(".info"):
             with open('./playlists/'+str(playlist)+'/'+file,'r', encoding="utf-8") as file:
                 fname = os.path.splitext(file.name)[0].rsplit('/')[-1]
-                if arg == 'all' or arg == 'full': out_string = fname +'. ' + file.read()
-                else: out_string = fname +'. ' + file.read().split('\n')[0]
-                info+=out_string+'\n'
-                if len(info)>1300: 
-                    await ctx.send(info, delete_after = 60)
-                    info = ''
+                if arg == 'all' or arg == 'full': 
+                    out_string = fname +'. ' + file.read()
+                    await ctx.send(out_string, delete_after = 60)
+                else: 
+                    out_string = fname +'. ' + file.read().split('\n')[0]
+                    info+=out_string+'\n'
+                    if len(info)>1300 and arg!='all' and arg!='full': 
+                        await ctx.send(info, delete_after = 60)
+                        info = ''
 
 @bot.command(pass_context=True, brief="(name) - Move playlist named (name) to queue",description = "Move playlist named (name) to queue;\naliases = pl_p", aliases=['pl_p'])
 async def playlist_play(ctx, playlist):
