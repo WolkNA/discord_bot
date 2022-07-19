@@ -3,7 +3,7 @@ import asyncio
 import yt_dlp as youtube_dl
 from youtubesearchpython import VideosSearch
 import os
-from discord.ext import commands
+from discord.ext import tasks, commands
 from discord.utils import get
 import json
 import requests
@@ -31,10 +31,32 @@ global cur_volume
 cur_volume = 1.0
 
 
+@tasks.loop(minutes=60.0)
+async def auto_hentai():      
+    channel = bot.get_channel(123456789123456789)
+    res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
+    with open('./r34/white_list.json', 'r+') as wl_file:
+        white_list = json.load(wl_file)
+    with open('./r34/black_list.json', 'r+') as bl_file:
+        black_list = json.load(bl_file)
+    if white_list: tags = white_list[random.randint(0,len(white_list)-1)]
+    else: tags = ''
+    tags+=' '+ black_list
+    res_text+=tags
+    response = requests.get(res_text)
+    posts = response.json()
+    l = len(posts)
+    if l == 0:
+        return
+    number = random.randint(0,l-1)
+    await channel.send(posts[number]['file_url'])
+
+
 @bot.event
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
+    auto_hentai.start()
 
 
 @bot.event
@@ -180,7 +202,7 @@ async def volume(ctx, new_volume = 100):
     try: new_volume = int(new_volume)
     except: return
     if new_volume < 0: new_volume = 0
-    elif new_volume > 100: new_volume = 100
+    elif new_volume > 200: new_volume = 200
     multiple = 1.0/cur_volume
     new_volume = float(new_volume)/100
     voice = get(bot.voice_clients, guild=ctx.guild)
