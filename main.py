@@ -33,7 +33,7 @@ cur_volume = 1.0
 
 @tasks.loop(minutes=60.0)
 async def auto_hentai():      
-    channel = bot.get_channel(123456789123456789)
+    channel = bot.get_channel(id)
     res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
@@ -56,7 +56,8 @@ async def auto_hentai():
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
-    auto_hentai.start()
+    try: auto_hentai.start()
+    except: pass
 
 
 @bot.event
@@ -87,7 +88,7 @@ async def on_message(message):
     if type(message.channel)==discord.DMChannel:
         if message.author==bot.user:
             return
-        await message.author.send("I didn't work here, baka")
+        await message.author.send("I don't work here, baka")
         return
     now = datetime.datetime.now()
     str_date = str(now.year)+'#'+str(now.month)+'#'+str(now.day)+'.txt'
@@ -290,7 +291,8 @@ async def rule34(ctx, *tags):
             res_text+=tag+'%20'
         res_text+=black_list
     response = requests.get(res_text)
-    posts = response.json()
+    try: posts = response.json()
+    except: posts = []
     l = len(posts)
     if l == 0:
         await ctx.send("Can't find any picture", delete_after = 3)
@@ -368,7 +370,7 @@ async def rule34_whitelist_add(ctx, *tags):
     if tags:
         for tag in tags:
             if tag in white_list: pass
-            else: white_list.append(' '+tag)
+            else: white_list.append(tag)
         with open('./r34/white_list.json','r+') as wl_file:
             json.dump(white_list, wl_file)
         await ctx.send('Tags succesfully added to whitelist', delete_after = 3)
