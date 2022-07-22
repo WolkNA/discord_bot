@@ -1,3 +1,5 @@
+from poplib import POP3_SSL_PORT
+from turtle import delay
 import discord
 import asyncio
 import yt_dlp as youtube_dl
@@ -27,36 +29,78 @@ with open('./loop_mode.json', 'r+') as lm_file:
     loop_mode = json.load(lm_file)
 global videosSearch
 videosSearch = []
-global cur_volume
-cur_volume = 1.0
+global posts
+posts = []
+global auto_delay
+with open('./auto_delay.json', 'r+') as ad_file:
+    auto_delay = json.load(ad_file)
 
 
-@tasks.loop(minutes=60.0)
+@tasks.loop(seconds = auto_delay)
 async def auto_hentai():      
-    channel = bot.get_channel(id)
+    channel = bot.get_channel()
+    global posts
+    l = len(posts)
+    number = random.randint(0,l-1)
+    await channel.send(posts[number]['file_url'])
+
+
+@tasks.loop(hours=8.0)
+async def auto_hentai_posts_update():
     res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
     with open('./r34/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
-    if white_list: tags = white_list[random.randint(0,len(white_list)-1)]
-    else: tags = ''
-    tags+=' '+ black_list
-    res_text+=tags
-    response = requests.get(res_text)
-    posts = response.json()
-    l = len(posts)
-    if l == 0:
+    tags =''
+    if white_list:
+        tags+='( '
+        for tag in white_list:
+            tags+=tag+' ~ '
+    else: pass
+    tags+=') '+ black_list
+    res_text+=tags+'&pid='
+    global posts
+    posts = []
+    iter = 0
+    while True:
+        response = requests.get(res_text+str(iter))
+        if len(response.json()) == 0:
+            break
+        posts += response.json()
+        iter+=1
+    try:auto_hentai.start()
+    except:pass
+
+
+@bot.command(pass_context=True, brief="[sec] Set rule34 auto send delay",description = "Set rule34 auto send delay;\naliases = r34_delay, auto_delay", aliases=['r34_delay','auto_delay'])
+async def delay(ctx, value):
+    try: await ctx.message.delete()
+    except: pass
+    try: value = float(value)
+    except: 
+        await ctx.send('Incorrect value')
         return
-    number = random.randint(0,l-1)
-    await channel.send(posts[number]['file_url'])
+    if value<1 or value>86400:
+        await ctx.send('Incorrect value')
+        return
+    with open('./auto_delay.json','w') as ad_file:
+        json.dump(value, ad_file)
+    global auto_delay
+    auto_delay = value
+    auto_hentai.cancel()
+    await asyncio.sleep(1)
+    auto_hentai.change_interval(seconds=auto_delay)
+    auto_hentai.start()
+    
+    
 
 
 @bot.event
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
-    try: auto_hentai.start()
+    try: auto_hentai_posts_update.start()
     except: pass
 
 
@@ -193,29 +237,6 @@ def play_next(ctx):
             asyncio.run_coroutine_threadsafe(check_voice(ctx, voice), bot.loop)
         except: pass
     else: asyncio.run_coroutine_threadsafe(check_voice(ctx, voice, True), bot.loop)
-
-
-@bot.command(pass_context=True, brief="[N] - Set volume as [N](0-100)", description = "Set volume as [N](0-100);\naliases = vol", aliases=['vol'])
-async def volume(ctx, new_volume = 100):
-    global cur_volume
-    try: await ctx.message.delete()
-    except: pass
-    try: new_volume = int(new_volume)
-    except: return
-    if new_volume < 0: new_volume = 0
-    elif new_volume > 200: new_volume = 200
-    multiple = 1.0/cur_volume
-    new_volume = float(new_volume)/100
-    voice = get(bot.voice_clients, guild=ctx.guild)
-    if voice and voice.is_playing():
-        #voice.source.volume = number
-        print(str(multiple)+' * ' + str(new_volume))
-        voice.source = discord.PCMVolumeTransformer(voice.source, volume=multiple)
-        voice.source = discord.PCMVolumeTransformer(voice.source, volume=new_volume)
-        cur_volume = new_volume
-        await ctx.send('Volume set as '+str(new_volume*100), delete_after = 3)
-    else:
-        await ctx.send('Music is not playing', delete_after = 3)
 
 
 @bot.command(pass_context=True, brief="[N] - Clear [N] message from channel", description = "Clear [N](default 100) message from channel;\naliases = clr", aliases=['clr'])
@@ -600,7 +621,6 @@ async def loop(ctx, *args):
         elif not music_queue:
             info_queue.append(cur_info)
             music_queue.append(source)
-
 
 
 @bot.command(pass_context=True, brief="(name) - Create playlist named (name)",description = "Create playlist named (name);\naliases = pl_create, create_playlist", aliases=['pl_create','create_playlist'])
