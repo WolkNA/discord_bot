@@ -1,3 +1,4 @@
+from distutils.log import info
 from poplib import POP3_SSL_PORT
 from turtle import delay
 import discord
@@ -12,6 +13,7 @@ import requests
 import random
 import datetime
 from natsort import natsorted
+import multiprocessing
 
 TOKEN=''
 bot = commands.Bot(command_prefix=['/', ':','-'])
@@ -41,12 +43,27 @@ async def auto_hentai():
     channel = bot.get_channel()
     global posts
     l = len(posts)
+    print(l)
     number = random.randint(0,l-1)
     await channel.send(posts[number]['file_url'])
 
 
+def sequential(calc, proc, posts, res_text):
+    for i in range(calc):
+        response = requests.get(res_text+str(proc+16*i))
+        try: l = len(response.json())
+        except: l = 0
+        if l==0: pass
+        else: posts += response.json()
+
+
 @tasks.loop(hours=8.0)
 async def auto_hentai_posts_update():
+    global posts
+    manager = multiprocessing.Manager()
+    posts = manager.list()
+    t1=datetime.datetime.now()
+    print(str(datetime.datetime.now().strftime('%H:%M:%S'))+'\t'+'Bot start update rule34 posts')
     res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
@@ -58,31 +75,51 @@ async def auto_hentai_posts_update():
         for tag in white_list:
             tags+=tag+' ~ '
     else: pass
-    tags+=') '+ black_list
+    tags+=') '
+    if black_list:
+        for tag in black_list:
+            tags+='-'+tag+'%20'
     res_text+=tags+'&pid='
-    global posts
-    posts = []
-    iter = 0
+    def processesed(procs, calc):
+        processes = []
+        for proc in range(procs):
+            p = multiprocessing.Process(target=sequential, args=(calc, proc, posts, res_text))
+            processes.append(p)
+            p.start()
+        for p in processes:
+            p.join()
+    n_proc = multiprocessing.cpu_count()
+    calc=1
     while True:
-        response = requests.get(res_text+str(iter))
-        if len(response.json()) == 0:
-            break
-        posts += response.json()
-        iter+=1
+        l = len(requests.get(res_text+str(n_proc*calc)).json())
+        if l==0: break
+        calc+=1
+    print('Calculations: '+str(calc))
+    processesed(n_proc, calc)
+    t2=datetime.datetime.now()
+    print(str(datetime.datetime.now().strftime('%H:%M:%S'))+'\t'+'Bot end update rule34 posts')
+    t3 = t2-t1
+    print('Update time: '+str(t3))
+    print('Total posts number: ' + str(len(posts)))
     try:auto_hentai.start()
     except:pass
 
 
+
 @bot.command(pass_context=True, brief="[sec] Set rule34 auto send delay",description = "Set rule34 auto send delay;\naliases = r34_delay, auto_delay", aliases=['r34_delay','auto_delay'])
+@commands.has_permissions(administrator=True)
 async def delay(ctx, value):
     try: await ctx.message.delete()
     except: pass
     try: value = float(value)
     except: 
-        await ctx.send('Incorrect value')
+        await ctx.send('Incorrect value', delete_after = 3)
         return
     if value<1 or value>86400:
-        await ctx.send('Incorrect value')
+        await ctx.send('Incorrect value', delete_after = 3)
+        return
+    if ctx.message.author.id == 465200431870640148:
+        await ctx.send('Иди к ебени матери, долбаеб', delete_after = 3)
         return
     with open('./auto_delay.json','w') as ad_file:
         json.dump(value, ad_file)
@@ -163,7 +200,7 @@ async def on_message(message):
         if msg in black_list:
             await message.delete()
             return
-    else: await bot.process_commands(message)
+    await bot.process_commands(message)
 
 
 async def preparation(ctx, voice, channel):
@@ -298,28 +335,27 @@ async def rule34(ctx, *tags):
     try: await ctx.message.delete()
     except: pass
     res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
-    with open('./r34/white_list.json', 'r+') as wl_file:
-        white_list = json.load(wl_file)
     with open('./r34/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
     if not tags:
-        if white_list: tags = white_list[random.randint(0,len(white_list)-1)]
-        else: tags = ''
-        tags+=' '+ black_list
-        res_text+=tags
+        global posts
+        l = len(posts)
+        number = random.randint(0,l-1)
+        await ctx.send(posts[number]['file_url'])
     else:
         for tag in tags:
             res_text+=tag+'%20'
-        res_text+=black_list
-    response = requests.get(res_text)
-    try: posts = response.json()
-    except: posts = []
-    l = len(posts)
-    if l == 0:
-        await ctx.send("Can't find any picture", delete_after = 3)
-        return
-    number = random.randint(0,l-1)
-    await ctx.send(posts[number]['file_url'])
+        for tag in black_list:
+            res_text+='-'+tag+'%20'
+        response = requests.get(res_text)
+        try: posts1 = response.json()
+        except: posts1 = []
+        l = len(posts1)
+        if l == 0:
+            await ctx.send("Can't find any picture", delete_after = 3)
+            return
+        number = random.randint(0,l-1)
+        await ctx.send(posts1[number]['file_url'])
 
 @bot.command(pass_context=True, brief="view rule34 tag blacklist",description = "view rule34 tag blacklist;\naliases = 34_bl, r34_bl, hentai_bl", aliases=['r34_bl','34_bl','hentai_bl'])
 @commands.has_permissions(administrator=True)
@@ -329,12 +365,13 @@ async def rule34_blacklist(ctx):
     with open('./r34/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
     i=1
-    black_list = black_list.replace(' ','')
-    black_list = black_list.split('-')
+    msg=''
     for tag in black_list:
-        if tag:
-            await ctx.send(str(i)+'. '+tag, delete_after = 60)
-            i+=1
+        msg+=str(i)+'. '+tag
+        i+=1
+        if len(msg)>1300: await ctx.send(msg, delete_after=60)
+    await ctx.send(msg, delete_after = 60)
+
 
 @bot.command(pass_context=True, brief="[tag] - add rule34 [tag] to blacklist",description = "[tag] - add rule34 [tag] to blacklist;\naliases = 34_bla, r34_bla, hentai_bla", aliases=['r34_bla','34_bla','hentai_bla'])
 @commands.has_permissions(administrator=True)
@@ -343,10 +380,11 @@ async def rule34_blacklist_add(ctx, *tags):
     except: pass
     with open('./r34/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
+    black_list = set(black_list)
     if tags:
         for tag in tags:
-            if tag in black_list: pass
-            else: black_list+=' -'+tag
+            black_list.add(tag)
+        black_list = list(black_list)
         with open('./r34/black_list.json','r+') as bl_file:
             json.dump(black_list, bl_file)
         await ctx.send('Tags succesfully added to blacklist', delete_after = 3)
@@ -361,8 +399,7 @@ async def rule34_blacklist_remove(ctx, *tags):
         black_list = json.load(bl_file)
     if tags:
         for tag in tags:
-            if (' -'+tag) in black_list: black_list = black_list.replace(' -'+tag,'')
-            elif ('-'+tag) in black_list: black_list = black_list.replace('-'+tag,'')
+            if tag in black_list: black_list.remove(tag)
         with open('./r34/black_list.json','w+') as bl_file:
             json.dump(black_list, bl_file)
         await ctx.send('Tags succesfully removed from blacklist', delete_after = 3)
@@ -376,9 +413,12 @@ async def rule34_whitelist(ctx):
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
     i=1
+    msg=''
     for tag in white_list:
-        await ctx.send(str(i)+'. '+tag, delete_after = 60)
+        msg+=str(i)+'. '+tag
         i+=1
+        if len(msg)>1300: await ctx.send(msg, delete_after=60)
+    await ctx.send(msg, delete_after = 60)
 
 
 @bot.command(pass_context=True, brief="[tag] - add rule34 [tag] to whitelist",description = "[tag] - add rule34 [tag] to whitelist;\naliases = 34_wla, r34_wla, hentai_wla", aliases=['r34_wla','34_wla','hentai_wla'])
@@ -388,14 +428,16 @@ async def rule34_whitelist_add(ctx, *tags):
     except: pass
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
+    white_list = set(white_list)
     if tags:
         for tag in tags:
-            if tag in white_list: pass
-            else: white_list.append(tag)
+            white_list.add(tag)
+        white_list=list(white_list)
         with open('./r34/white_list.json','r+') as wl_file:
             json.dump(white_list, wl_file)
         await ctx.send('Tags succesfully added to whitelist', delete_after = 3)
     else: await ctx.send('Tags not found', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="[tag] - remove rule34 [tag] from whitelist",description = "[tag] - remove rule34 [tag] from whitelist;\naliases = 34_wlr, r34_wlr, hentai_wlr", aliases=['r34_wlr','34_wlr','hentai_wlr'])
 @commands.has_permissions(administrator=True)
@@ -406,8 +448,7 @@ async def rule34_whitelist_remove(ctx, *tags):
         white_list = json.load(wl_file)
     if tags:
         for tag in tags:
-            if (' '+tag) in white_list: white_list.remove(' '+tag,'')
-            elif (tag) in white_list: white_list.remove(tag,'')
+            if tag in white_list: white_list.remove(tag)
         with open('./r34/white_list.json','w+') as wl_file:
             json.dump(white_list, wl_file)
         await ctx.send('Tags succesfully removed from whitelist', delete_after = 3)
@@ -547,9 +588,12 @@ async def playfirst(ctx, *args):
         'format': 'bestaudio/best',
         'outtmpl': fname
     }
-    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
-    
+    try:
+        with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([url])
+    except:
+        await ctx.send("Can't download song", delete_after = 3)
+        return
     music_queue.append(fname)
     res = videosSearch.result()['result'][0]
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
@@ -584,6 +628,27 @@ async def skip(ctx, count = '1'):
     voice.stop()
     if voice.is_playing() == True: play_next(ctx)
     await ctx.send('Music Skipped ' + str(c1) + ' times', delete_after = 3)
+
+
+@bot.command(pass_context=True, brief="Delete current song from queue",description = "Delete current song from queue;\naliases = q_del, del, delete", aliases=['q_del','del','delete'])
+async def queue_delete(ctx, number = '1'):
+    try: await ctx.message.delete()
+    except: pass
+    try: number = int(number)
+    except: number=1
+    if number>len(info_queue)+1 or number<1:
+        await ctx.send('The number is out of range', delete_after = 3)
+        return
+    if number==1:
+        if loop_mode == True:
+            music_queue.pop(-1)
+            info_queue.pop(-1)
+        await skip(ctx)
+    else:
+        music_queue.pop(number-2)
+        info_queue.pop(number-2)
+    await ctx.send('The song deleted successfully', delete_after=3)
+
 
 @bot.command(pass_context=True, brief="Output current song",description = "Output current song;\naliases = ?", aliases=['?'])
 async def now(ctx, *args):
@@ -715,9 +780,14 @@ async def playlist_info(ctx, playlist, arg = 'not'):
                 else: 
                     out_string = fname +'. ' + file.read().split('\n')[0]
                     info+=out_string+'\n'
-                    if len(info)>1300 and arg!='all' and arg!='full': 
+                    if len(info)>1300: 
                         await ctx.send(info, delete_after = 60)
                         info = ''
+    if arg!='all' and arg!='full':
+        try: await ctx.send(info,delete_after = 60)
+        except: pass
+
+                        
 
 @bot.command(pass_context=True, brief="(name) - Move playlist named (name) to queue",description = "Move playlist named (name) to queue;\naliases = pl_p", aliases=['pl_p'])
 async def playlist_play(ctx, playlist):
@@ -823,5 +893,5 @@ async def choose(ctx, choosed):
     info_queue.append(playing_string)
     if voice.is_playing() == False: play_next(ctx)
 
-
-bot.run(TOKEN)
+if __name__=="__main__":
+    bot.run(TOKEN)
