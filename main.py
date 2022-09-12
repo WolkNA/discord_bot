@@ -40,24 +40,50 @@ with open('./auto_delay.json', 'r+') as ad_file:
 
 
 
-
 @tasks.loop(seconds = auto_delay)
 async def auto_hentai():      
     channel = bot.get_channel(849373450589962301)
     #channel = bot.get_channel(999058592785240196)
     global posts
-    l = len(posts)
-    number = random.randint(0,l-1)
-    await channel.send(posts[number]['file_url'])
+    global white_dict
+    location = []
+    prev = 0
+    author=''
+    for value in white_dict.values():
+        if value[0]+value[1]>0: 
+            prev = prev+value[0]+value[1]
+        location.append(prev)
+    max = location[-1]
+    r = random.randint(0,max-1)
+    c = 0
+    for key in white_dict.keys():
+        if r>=location[c]:
+            c+=1
+        else: 
+            author = key
+            l = len(posts[author])
+            number = random.randint(0,l-1)
+            await channel.send(posts[author][number]['file_url'])
+            return
 
 
-def sequential(calc, proc, posts, res_text):
+def sequential(calc, proc, posts, res_text, white_list):
     for i in range(calc):
-        response = requests.get(res_text+str(proc+int(multiprocessing.cpu_count()/2)*i))
-        try: l = len(response.json())
-        except: l = 0
+        iter = 0
+        l=0
+        while True:
+            try: response = requests.get(res_text+white_list[proc+int(multiprocessing.cpu_count()/2)*i]+'&pid='+str(iter))
+            except: break
+            try: 
+                l += len(response.json())
+                l1 = len(response.json())
+            except: l = 0
+            if l1<1000: break
+            else:
+                iter+=1
+                posts[white_list[proc+int(multiprocessing.cpu_count()/2)*i]] += response.json()
         if l==0: pass
-        else: posts += response.json()
+        else: posts[white_list[proc+int(multiprocessing.cpu_count()/2)*i]] += response.json()
 
 
 @tasks.loop(hours = 8.0)
@@ -66,46 +92,50 @@ async def auto_hentai_posts_update():
     except: pass
     global posts
     manager = multiprocessing.Manager()
-    posts = manager.list()
+    posts = manager.dict()
     t1=datetime.datetime.now()
     print(str(datetime.datetime.now().strftime('%H:%M:%S'))+'\t'+'Bot start update rule34 posts')
     res_text = 'https://api.rule34.xxx//index.php?page=dapi&s=post&q=index&json=1&limit=1000&tags='
+    global white_dict
     with open('./r34/white_list.json', 'r+') as wl_file:
-        white_list = json.load(wl_file)
+        white_dict = json.load(wl_file)
+    white_list = []
+    for key in white_dict.keys():
+        white_list.append(key)
     with open('./r34/black_list.json', 'r+') as bl_file:
         black_list = json.load(bl_file)
-    tags =''
-    if white_list:
-        tags+='( '
-        for tag in white_list:
-            tags+=tag+' ~ '
-    else: pass
-    tags+=') '
+
     if black_list:
         for tag in black_list:
-            tags+='-'+tag+'%20'
-    res_text+=tags+'&pid='
+            res_text+='-'+tag+' '  
     def processesed(procs, calc):
         processes = []
         for proc in range(procs):
-            p = multiprocessing.Process(target=sequential, args=(calc, proc, posts, res_text))
+            p = multiprocessing.Process(target=sequential, args=(calc, proc, posts, res_text, white_list))
             processes.append(p)
             p.start()
         for p in processes:
             p.join()
     n_proc = int(multiprocessing.cpu_count()/2)
-    calc=1
-    while True:
-        l = len(requests.get(res_text+str(n_proc*calc*1000)+'&limit=1').json())
-        if l==0: break
-        calc+=1
+    if len(white_list)%n_proc==0: calc=len(white_list)/n_proc
+    else: calc = int(len(white_list)/n_proc + 1)
+    for tag in white_list:
+        posts[tag]=list()
     print('Calculations: '+str(calc))
     processesed(n_proc, calc)
+    l = 0
+    for key, value in posts.items():
+        if white_dict[key][0]!=len(value):
+            white_dict[key][0] = len(value)
+            print('Refresh: ', key)
+        l+=len(value)
+    with open('./r34/white_list.json', 'w+') as wl_file:
+        json.dump(white_dict, wl_file)
     t2=datetime.datetime.now()
     print(str(datetime.datetime.now().strftime('%H:%M:%S'))+'\t'+'Bot end update rule34 posts')
     t3 = t2-t1
     print('Update time: '+str(t3))
-    print('Total posts number: ' + str(len(posts)))
+    print('Total posts number: ' + str(l))
     try:
         await asyncio.sleep(1)
         auto_hentai.start()
@@ -227,6 +257,91 @@ async def on_message(message):
             await message.delete()
             return
     await bot.process_commands(message)
+
+
+@bot.event
+async def on_raw_reaction_add(payload):
+    #print(payload.message_id, ' : ', payload.user_id, ' : ', payload.emoji)
+    global posts
+    print('add:', payload.emoji.name)
+    channel = bot.get_channel(payload.channel_id)
+    message = await channel.fetch_message(payload.message_id)
+    if not message.author.bot: return
+    else: 
+        url = message.content
+        if 'https://api-cdn.rule34.xxx/images/' not in url: return
+        else:
+            for author in posts:
+                for post in posts[author]:
+                    if post['file_url']==url:
+                        print(author)
+                        if payload.emoji.name == 'SSS':
+                            delta = 20
+                        elif payload.emoji.name == 'SS':
+                            delta = 15
+                        elif payload.emoji.name == 'S_':
+                            delta = 10
+                        elif payload.emoji.name == 'A_':
+                            delta = 5
+                        elif payload.emoji.name == 'B_':
+                            delta = 2
+                        elif payload.emoji.name == 'C_':
+                            delta = 0
+                        elif payload.emoji.name == 'D_':
+                            delta = -5
+                        elif payload.emoji.name == 'E_':
+                            delta = -10
+                        elif payload.emoji.name == 'F_':
+                            delta = -20
+                        with open('./r34/white_list.json', 'r+') as wl_file:
+                            white_dict = json.load(wl_file)
+                        white_dict[author][1]+=delta
+                        with open('./r34/white_list.json', 'w+') as wl_file:
+                            json.dump(white_dict, wl_file)
+                        break
+
+            
+@bot.event
+async def on_raw_reaction_remove(payload):
+    global posts
+    print('delete: ', payload.emoji.name)
+    channel = bot.get_channel(payload.channel_id)
+    message = await channel.fetch_message(payload.message_id)
+    if not message.author.bot: return
+    else: 
+        url = message.content
+        if 'https://api-cdn.rule34.xxx/images/' not in url: return
+        else:
+            for author in posts:
+                for post in posts[author]:
+                    if post['file_url']==url:
+                        print(author)
+                        if payload.emoji.name == 'SSS':
+                            delta = -20
+                        elif payload.emoji.name == 'SS':
+                            delta = -15
+                        elif payload.emoji.name == 'S_':
+                            delta = -10
+                        elif payload.emoji.name == 'A_':
+                            delta = -5
+                        elif payload.emoji.name == 'B_':
+                            delta = -2
+                        elif payload.emoji.name == 'C_':
+                            delta = 0
+                        elif payload.emoji.name == 'D_':
+                            delta = 5
+                        elif payload.emoji.name == 'E_':
+                            delta = 10
+                        elif payload.emoji.name == 'F_':
+                            delta = 20
+                        with open('./r34/white_list.json', 'r+') as wl_file:
+                            white_dict = json.load(wl_file)
+                        white_dict[author][1]+=delta
+                        with open('./r34/white_list.json', 'w+') as wl_file:
+                            json.dump(white_dict, wl_file)
+                        break
+        
+
 
 
 async def preparation(ctx, voice, channel):
@@ -405,9 +520,26 @@ async def rule34(ctx, *tags):
         black_list = json.load(bl_file)
     if not tags:
         global posts
-        l = len(posts)
-        number = random.randint(0,l-1)
-        await ctx.send(posts[number]['file_url'])
+        global white_dict
+        location = []
+        prev = 0
+        author=''
+        for value in white_dict.values():
+            if value[0]+value[1]>0: 
+                prev = prev+value[0]+value[1]
+            location.append(prev)
+        max = location[-1]
+        r = random.randint(0,max-1)
+        c = 0
+        for key in white_dict.keys():
+            if r>=location[c]:
+                c+=1
+            else: 
+                author = key
+                l = len(posts[author])
+                number = random.randint(0,l-1)
+                await ctx.send(posts[author][number]['file_url'])
+                return
     else:
         for tag in tags:
             res_text+=tag+'%20'
@@ -416,7 +548,8 @@ async def rule34(ctx, *tags):
         response = requests.get(res_text)
         try: posts1 = response.json()
         except: posts1 = []
-        l = len(posts1)
+        try: l = len(posts1)
+        except: l = 0
         if l == 0:
             await ctx.send("Can't find any picture", delete_after = 3)
             return
@@ -435,7 +568,9 @@ async def rule34_blacklist(ctx):
     for tag in black_list:
         msg+=str(i)+'. '+tag
         i+=1
-        if len(msg)>1300: await ctx.send(msg, delete_after=60)
+        if len(msg)>1300: 
+            await ctx.send(msg, delete_after=60)
+            msg=''
     await ctx.send(msg, delete_after = 60)
 
 
@@ -451,7 +586,7 @@ async def rule34_blacklist_add(ctx, *tags):
         for tag in tags:
             black_list.add(tag)
         black_list = list(black_list)
-        with open('./r34/black_list.json','r+') as bl_file:
+        with open('./r34/black_list.json','w+') as bl_file:
             json.dump(black_list, bl_file)
         await ctx.send('Tags succesfully added to blacklist', delete_after = 3)
     else: await ctx.send('Tags not found', delete_after = 3)
@@ -480,10 +615,12 @@ async def rule34_whitelist(ctx):
         white_list = json.load(wl_file)
     i=1
     msg=''
-    for tag in white_list:
+    for tag in white_list.keys():
         msg+=str(i)+'. '+tag
         i+=1
-        if len(msg)>1300: await ctx.send(msg, delete_after=60)
+        if len(msg)>1300: 
+            await ctx.send(msg, delete_after=60)
+            msg=''
     await ctx.send(msg, delete_after = 60)
 
 
@@ -494,12 +631,11 @@ async def rule34_whitelist_add(ctx, *tags):
     except: pass
     with open('./r34/white_list.json', 'r+') as wl_file:
         white_list = json.load(wl_file)
-    white_list = set(white_list)
     if tags:
         for tag in tags:
-            white_list.add(tag)
-        white_list=list(white_list)
-        with open('./r34/white_list.json','r+') as wl_file:
+            if tag not in white_list.keys():
+                white_list[tag]=[0,0]
+        with open('./r34/white_list.json','w+') as wl_file:
             json.dump(white_list, wl_file)
         await ctx.send('Tags succesfully added to whitelist', delete_after = 3)
     else: await ctx.send('Tags not found', delete_after = 3)
@@ -514,7 +650,7 @@ async def rule34_whitelist_remove(ctx, *tags):
         white_list = json.load(wl_file)
     if tags:
         for tag in tags:
-            if tag in white_list: white_list.remove(tag)
+            if tag in white_list.keys(): white_list.pop(tag)
         with open('./r34/white_list.json','w+') as wl_file:
             json.dump(white_list, wl_file)
         await ctx.send('Tags succesfully removed from whitelist', delete_after = 3)
