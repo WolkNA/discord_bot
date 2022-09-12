@@ -8,6 +8,7 @@ from youtubesearchpython import VideosSearch
 import os
 from discord.ext import tasks, commands
 from discord.utils import get
+from discord.ui import Button, View
 import json
 import requests
 import random
@@ -16,7 +17,7 @@ from natsort import natsorted
 import multiprocessing
 
 TOKEN=''
-bot = commands.Bot(command_prefix=['/', ':','-'])
+bot = commands.Bot(command_prefix=['/', ':','-'], intents=discord.Intents.all())
 
 global music_queue
 music_queue = []
@@ -38,27 +39,31 @@ with open('./auto_delay.json', 'r+') as ad_file:
     auto_delay = json.load(ad_file)
 
 
+
+
 @tasks.loop(seconds = auto_delay)
 async def auto_hentai():      
-    channel = bot.get_channel()
+    channel = bot.get_channel(849373450589962301)
+    #channel = bot.get_channel(999058592785240196)
     global posts
     l = len(posts)
-    print(l)
     number = random.randint(0,l-1)
     await channel.send(posts[number]['file_url'])
 
 
 def sequential(calc, proc, posts, res_text):
     for i in range(calc):
-        response = requests.get(res_text+str(proc+16*i))
+        response = requests.get(res_text+str(proc+int(multiprocessing.cpu_count()/2)*i))
         try: l = len(response.json())
         except: l = 0
         if l==0: pass
         else: posts += response.json()
 
 
-@tasks.loop(hours=8.0)
+@tasks.loop(hours = 8.0)
 async def auto_hentai_posts_update():
+    try: auto_hentai.cancel()
+    except: pass
     global posts
     manager = multiprocessing.Manager()
     posts = manager.list()
@@ -88,10 +93,10 @@ async def auto_hentai_posts_update():
             p.start()
         for p in processes:
             p.join()
-    n_proc = multiprocessing.cpu_count()
+    n_proc = int(multiprocessing.cpu_count()/2)
     calc=1
     while True:
-        l = len(requests.get(res_text+str(n_proc*calc)).json())
+        l = len(requests.get(res_text+str(n_proc*calc*1000)+'&limit=1').json())
         if l==0: break
         calc+=1
     print('Calculations: '+str(calc))
@@ -101,7 +106,9 @@ async def auto_hentai_posts_update():
     t3 = t2-t1
     print('Update time: '+str(t3))
     print('Total posts number: ' + str(len(posts)))
-    try:auto_hentai.start()
+    try:
+        await asyncio.sleep(1)
+        auto_hentai.start()
     except:pass
 
 
@@ -115,12 +122,11 @@ async def delay(ctx, value):
     except: 
         await ctx.send('Incorrect value', delete_after = 3)
         return
-    if value<1 or value>86400:
+    if value<1 or value>28800:
         await ctx.send('Incorrect value', delete_after = 3)
         return
-    if ctx.message.author.id == 465200431870640148:
-        await ctx.send('Иди к ебени матери, долбаеб', delete_after = 3)
-        return
+    else:
+        await ctx.send('Rule34 auto delay succesfully modified', delete_after = 3)
     with open('./auto_delay.json','w') as ad_file:
         json.dump(value, ad_file)
     global auto_delay
@@ -129,7 +135,27 @@ async def delay(ctx, value):
     await asyncio.sleep(1)
     auto_hentai.change_interval(seconds=auto_delay)
     auto_hentai.start()
-    
+
+
+@bot.slash_command(pass_context=True, description = 'Set rule34 auto send delay')
+async def delay(ctx, value):
+    try: value = float(value)
+    except: 
+        await ctx.respond('Incorrect value', delete_after = 3)
+        return
+    if value<1 or value>28800:
+        await ctx.respond('Incorrect value', delete_after = 3)
+        return
+    else:
+        await ctx.respond('Rule34 auto delay succesfully modified', delete_after = 3)
+    with open('./auto_delay.json','w') as ad_file:
+        json.dump(value, ad_file)
+    global auto_delay
+    auto_delay = value
+    auto_hentai.cancel()
+    await asyncio.sleep(1)
+    auto_hentai.change_interval(seconds=auto_delay)
+    auto_hentai.start()
     
 
 
@@ -151,7 +177,6 @@ async def on_voice_state_update(member, before, after):
     voice = guild.voice_client
     if voice is None or not voice.is_connected():
         return
-    
     if len(voice.channel.members) == 1:
         print('diconnect')
         global cur_info
@@ -161,7 +186,8 @@ async def on_voice_state_update(member, before, after):
         global info_queue
         info_queue = []
         await voice.disconnect()
-        await on_ready()
+        act = discord.Activity(name='в текстовые каналы', type=3)
+        await bot.change_presence(status=discord.Status.online, activity=act)
 
 
 @bot.event
@@ -221,15 +247,50 @@ async def preparation(ctx, voice, channel):
         print("Someone wants to play music let me get that ready for them...")
     return voice
 
+
+async def loop_change(interaction):
+    global loop_mode
+    global loop_message
+    if loop_mode == False: 
+        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+        loop_mode = True
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
+    elif loop_mode == True: 
+        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+        loop_mode = False
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
+    voice = get(bot.voice_clients)
+    if voice and voice.is_playing():
+        if music_queue:
+            if music_queue[-1]!=source:
+                info_queue.append(cur_info)
+                music_queue.append(source)
+        elif not music_queue:
+            info_queue.append(cur_info)
+            music_queue.append(source)
+    button.callback = loop_change
+    await interaction.response.edit_message(view=View(button))
+
+
 async def send_message(ctx, cur_info):
     global cur_message
     cur_message = await ctx.send(cur_info)
     global loop_message
     if loop_mode == True: 
-        loop_message = await ctx.send('Loop mode enabled')
+        #loop_message = await ctx.send('Loop mode enabled')
+        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+        button.callback = loop_change
+        loop_message = await ctx.send(view=View(button))
     elif loop_mode == False:
-        loop_message = await ctx.send('Loop mode disabled')
-
+        #loop_message = await ctx.send('Loop mode disabled')
+        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+        button.callback = loop_change
+        loop_message = await ctx.send(view=View(button))
+    global skip_message
+    await skip_menu(ctx)
+    
 
 
 async def check_voice(ctx, voice, last = False):
@@ -240,6 +301,8 @@ async def check_voice(ctx, voice, last = False):
             await msg.delete()
             loop_msg = await ctx.channel.fetch_message(loop_message.id)
             await loop_msg.delete()
+            skip_msg = await ctx.channel.fetch_message(skip_message.id)
+            await skip_msg.delete()
         except: pass
         return
     if voice.is_playing() == True: 
@@ -254,6 +317,8 @@ async def check_voice(ctx, voice, last = False):
             await msg.delete()
             loop_msg = await ctx.channel.fetch_message(loop_message.id)
             await loop_msg.delete()
+            skip_msg = await ctx.channel.fetch_message(skip_message.id)
+            await skip_msg.delete()
         except: pass
         await send_message(ctx,cur_info)
 
@@ -326,6 +391,7 @@ async def what(ctx):
     l = len(posts)
     number = random.randint(0,l-1)
     await ctx.send('https://safebooru.org//images/'+str(posts[number]['directory'])+'/'+str(posts[number]['image']))
+
 
 
 
@@ -501,6 +567,11 @@ async def play(ctx, url: str):
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
     info_queue.append(playing_string)
     if voice.is_playing() == False: play_next(ctx)
+    else: 
+        global skip_message
+        await skip_message.delete()
+        await skip_menu(ctx)
+
 
 @bot.command(pass_context=True, brief="Bot leave channel",description = "Bot leave channel;\naliases = l, le, lea", aliases=['l', 'le', 'lea'])
 async def leave(ctx):
@@ -518,7 +589,8 @@ async def leave(ctx):
         info_queue = []
         await voice.disconnect()
         await ctx.send(f"Left {channel}", delete_after = 3)
-        await on_ready()
+        act = discord.Activity(name='в текстовые каналы', type=3)
+        await bot.change_presence(status=discord.Status.online, activity=act)
     else:
         await ctx.send("Don't think I am in a voice channel", delete_after = 3)
 
@@ -599,6 +671,12 @@ async def playfirst(ctx, *args):
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
     info_queue.append(playing_string)
     if voice.is_playing() == False: play_next(ctx)
+    else: 
+        global skip_message
+        await skip_message.delete()
+        await skip_menu(ctx)
+
+
 
 @bot.command(pass_context=True, brief="Skip current song",description = "Skip current song;\naliases = pass", aliases=['pass'])
 async def skip(ctx, count = '1'):
@@ -628,6 +706,27 @@ async def skip(ctx, count = '1'):
     voice.stop()
     if voice.is_playing() == True: play_next(ctx)
     await ctx.send('Music Skipped ' + str(c1) + ' times', delete_after = 3)
+
+
+async def skip_menu(ctx):
+    global skip_message
+    opt = []
+    opt.append(discord.SelectOption(label = '1.'+cur_info.split('Now playing: ')[1].split(';')[0][:97], description='; '.join(cur_info.split('Now playing: ')[1].split('\n')[0].split(';')[-2:])[:99], default = True))
+    i=2
+    for song in info_queue:
+        opt.append(discord.SelectOption(label = str(i)+'.'+song.split('Now playing: ')[1].split(';')[0][:97], description='; '.join(song.split('Now playing: ')[1].split('\n')[0].split(';')[-2:])[:99]))
+        i+=1
+        if i>25: break
+    select = discord.ui.Select(
+        placeholder='Choose',
+        options =opt
+    )
+    async def my_callback(interaction):
+        await skip(ctx, int(select.values[0].split('.')[0])-1)
+    select.callback = my_callback
+    view = View()
+    view.add_item(select)
+    skip_message = await ctx.send(view=view)
 
 
 @bot.command(pass_context=True, brief="Delete current song from queue",description = "Delete current song from queue;\naliases = q_del, del, delete", aliases=['q_del','del','delete'])
@@ -667,16 +766,15 @@ async def loop(ctx, *args):
         loop_mode = False
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        loop_msg = await ctx.channel.fetch_message(loop_message.id)
-        await loop_msg.delete()
-        loop_message = await ctx.send('Loop mode disabled')
+        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
     elif loop_mode == False: 
         loop_mode = True
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
-        loop_msg = await ctx.channel.fetch_message(loop_message.id)
-        await loop_msg.delete()
-        loop_message = await ctx.send('Loop mode enabled')
+        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+    button.callback = loop_change
+    try: await loop_message.edit(view=View(button))
+    except: pass
     voice = get(bot.voice_clients, guild=ctx.guild)
     if voice and voice.is_playing():
         if music_queue:
@@ -810,6 +908,10 @@ async def playlist_play(ctx, playlist):
         elif file.endswith('.webm'):
             music_queue.append(dir+str(file))
     if voice.is_playing() == False: play_next(ctx)
+    else: 
+        global skip_message
+        await skip_message.delete()
+        await skip_menu(ctx)
 
 @bot.command(pass_context=True, brief="[all] Displays current songs in queue",description = "Displays current songs in queue. If you need to show full info: use queue all/full;\naliases = q", aliases=['q'])
 async def queue(ctx, arg = 'True'):
@@ -892,6 +994,55 @@ async def choose(ctx, choosed):
     playing_string = "Now playing: "+  str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
     info_queue.append(playing_string)
     if voice.is_playing() == False: play_next(ctx)
+    else: 
+        global skip_message
+        await skip_message.delete()
+        await skip_menu(ctx)
+
+
+@bot.command(pass_context=True, brief="Fix some problems", aliases=['repair'])
+async def fix(ctx):
+    try: await ctx.message.delete()
+    except: pass
+    # try: voice = get(bot.voice_clients, guild=ctx.guild)
+    # except: pass
+    # try: 
+    #     channel = ctx.message.author.voice.channel
+    #     voice = await channel.connect()
+    # except: pass
+    # try: voice.stop()
+    # except: pass
+    global cur_info
+    global source
+    global info_queue
+    global music_queue
+    if cur_info and source:
+        info_queue.insert(0,cur_info)
+        music_queue.insert(0,source)
+    old_info_queue = info_queue
+    old_music_queue = music_queue
+    try:
+        msg = await ctx.channel.fetch_message(cur_message.id)
+        await msg.delete()
+        loop_msg = await ctx.channel.fetch_message(loop_message.id)
+        await loop_msg.delete()
+        skip_msg = await ctx.channel.fetch_message(skip_message.id)
+        await skip_msg.delete()
+    except: pass
+    try: 
+        await stop(ctx)
+        await leave(ctx)
+        await join(ctx)
+    except: pass
+    try: 
+        await join(ctx)
+        await stop(ctx)
+    except: pass
+    music_queue = old_music_queue
+    info_queue = old_info_queue
+
+    play_next(ctx)
+
 
 if __name__=="__main__":
     bot.run(TOKEN)
