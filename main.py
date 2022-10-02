@@ -1,5 +1,7 @@
+from code import interact
 from distutils.log import info
 from poplib import POP3_SSL_PORT
+from time import sleep
 from turtle import delay
 import discord
 import asyncio
@@ -30,6 +32,8 @@ source = ''
 global loop_mode
 with open('./loop_mode.json', 'r+') as lm_file:
     loop_mode = json.load(lm_file)
+global pause_mode
+pause_mode = False
 global videosSearch
 videosSearch = []
 global posts
@@ -37,6 +41,9 @@ posts = []
 global auto_delay
 with open('./auto_delay.json', 'r+') as ad_file:
     auto_delay = json.load(ad_file)
+global idiots_list
+with open('./idiots_list.json','r+') as il_file:
+    idiots_list = json.load(il_file)
 
 
 
@@ -86,10 +93,10 @@ def sequential(calc, proc, posts, res_text, white_list):
         else: posts[white_list[proc+int(multiprocessing.cpu_count()/2)*i]] += response.json()
 
 
-@tasks.loop(hours = 8.0)
+#@tasks.loop(hours = 8.0)
 async def auto_hentai_posts_update():
-    try: auto_hentai.cancel()
-    except: pass
+    #try: auto_hentai.cancel()
+    #except: pass
     global posts
     manager = multiprocessing.Manager()
     posts = manager.dict()
@@ -117,7 +124,7 @@ async def auto_hentai_posts_update():
         for p in processes:
             p.join()
     n_proc = int(multiprocessing.cpu_count()/2)
-    if len(white_list)%n_proc==0: calc=len(white_list)/n_proc
+    if len(white_list)%n_proc==0: calc=int(len(white_list)/n_proc)
     else: calc = int(len(white_list)/n_proc + 1)
     for tag in white_list:
         posts[tag]=list()
@@ -148,6 +155,9 @@ async def auto_hentai_posts_update():
 async def delay(ctx, value):
     try: await ctx.message.delete()
     except: pass
+    global idiots_list
+    if ctx.message.author.id in idiots_list:
+        return
     try: value = float(value)
     except: 
         await ctx.send('Incorrect value', delete_after = 3)
@@ -193,8 +203,20 @@ async def delay(ctx, value):
 async def on_ready():
     act = discord.Activity(name='в текстовые каналы', type=3)
     await bot.change_presence(status=discord.Status.online, activity=act)
-    try: auto_hentai_posts_update.start()
+    #try: auto_hentai_posts_update.start()
+    #except: pass
+    try: await auto_hentai_posts_update()
     except: pass
+
+
+@bot.event
+async def on_disconnect():
+    print(datetime.datetime.now(), 'BOT WAS DISCONNECTED FROM DISCORD')
+
+
+@bot.event
+async def on_connect():
+    print(datetime.datetime.now(), 'BOT WAS CONNECTED TO DISCORD')
 
 
 @bot.event
@@ -260,10 +282,28 @@ async def on_message(message):
 
 
 @bot.event
+async def on_message_edit(before, after):
+    pass
+
+
+@bot.event
+async def on_message_delete(message):
+    pass
+
+
+@bot.event
+async def on_bulk_message_delete(messages):
+    pass
+
+
+@bot.event
 async def on_raw_reaction_add(payload):
     #print(payload.message_id, ' : ', payload.user_id, ' : ', payload.emoji)
     global posts
-    print('add:', payload.emoji.name)
+    global idiots_list
+    if payload.user_id in idiots_list:
+        return
+    print(datetime.datetime.now(),'\t',payload.user_id, '\tAdd reaction: ', payload.emoji.name)
     channel = bot.get_channel(payload.channel_id)
     message = await channel.fetch_message(payload.message_id)
     if not message.author.bot: return
@@ -293,6 +333,7 @@ async def on_raw_reaction_add(payload):
                             delta = -10
                         elif payload.emoji.name == 'F_':
                             delta = -20
+                        else: delta = 0
                         with open('./r34/white_list.json', 'r+') as wl_file:
                             white_dict = json.load(wl_file)
                         white_dict[author][1]+=delta
@@ -304,7 +345,10 @@ async def on_raw_reaction_add(payload):
 @bot.event
 async def on_raw_reaction_remove(payload):
     global posts
-    print('delete: ', payload.emoji.name)
+    global idiots_list
+    if payload.user_id in idiots_list:
+        return
+    print(datetime.datetime.now(),'\t',payload.user_id, '\tRemove reaction: ', payload.emoji.name)
     channel = bot.get_channel(payload.channel_id)
     message = await channel.fetch_message(payload.message_id)
     if not message.author.bot: return
@@ -334,6 +378,7 @@ async def on_raw_reaction_remove(payload):
                             delta = 10
                         elif payload.emoji.name == 'F_':
                             delta = 20
+                        else: delta = 0
                         with open('./r34/white_list.json', 'r+') as wl_file:
                             white_dict = json.load(wl_file)
                         white_dict[author][1]+=delta
@@ -367,15 +412,19 @@ async def loop_change(interaction):
     global loop_mode
     global loop_message
     if loop_mode == False: 
-        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+        loop_button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
         loop_mode = True
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
     elif loop_mode == True: 
-        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+        loop_button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
         loop_mode = False
         with open('./loop_mode.json','w') as lm_file:
             json.dump(loop_mode, lm_file)
+    if pause_mode == True:
+        pause_button = Button(custom_id='button2', label = '►', style=discord.ButtonStyle.green)
+    else:
+        pause_button = Button(custom_id='button2', label = '▌▌', style=discord.ButtonStyle.green)
     voice = get(bot.voice_clients)
     if voice and voice.is_playing():
         if music_queue:
@@ -385,24 +434,98 @@ async def loop_change(interaction):
         elif not music_queue:
             info_queue.append(cur_info)
             music_queue.append(source)
-    button.callback = loop_change
-    await interaction.response.edit_message(view=View(button))
+    back_button = Button(custom_id='button3', label = '◄◄', style=discord.ButtonStyle.green)
+    forward_button = Button(custom_id='button4', label = '►►', style=discord.ButtonStyle.green)
+    stop_button = Button(custom_id='button5', label = '▇', style=discord.ButtonStyle.green)
+    stop_button.callback = stop_b
+    back_button.callback = back
+    forward_button.callback = forward
+    loop_button.callback = loop_change
+    pause_button.callback = pause_change
+    await interaction.response.edit_message(view=View(loop_button,back_button, pause_button, stop_button, forward_button))
+
+
+async def pause_change(interaction):
+    global pause_mode
+    voice = get(bot.voice_clients)
+    if loop_mode == True: 
+        loop_button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+    else:
+        loop_button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+    if pause_mode == True:
+        pause_mode = False
+        pause_button = Button(custom_id='button2', label = '▌▌', style=discord.ButtonStyle.green)
+        voice.resume()
+    else:
+        pause_mode = True
+        pause_button = Button(custom_id='button2', label = '►', style=discord.ButtonStyle.green)
+        voice.pause()
+    back_button = Button(custom_id='button3', label = '◄◄', style=discord.ButtonStyle.green)
+    forward_button = Button(custom_id='button4', label = '►►', style=discord.ButtonStyle.green)
+    stop_button = Button(custom_id='button5', label = '▇', style=discord.ButtonStyle.green)
+    stop_button.callback = stop_b
+    back_button.callback = back
+    forward_button.callback = forward
+    pause_button.callback = pause_change
+    loop_button.callback = loop_change
+    await interaction.response.edit_message(view=View(loop_button,back_button, pause_button, stop_button, forward_button))
+
+
+async def forward(interaction):
+    voice = get(bot.voice_clients)
+    voice.stop()
+    if voice.is_playing() == True: play_next(interaction)
+
+async def back(interaction):
+    count = len(music_queue)-1
+    if loop_mode == True:
+        while count>1:
+            music_queue.append(music_queue.pop(0))
+            info_queue.append(info_queue.pop(0))
+            count-=1
+    else:
+        while count>1:
+            music_queue.pop(0)
+            info_queue.pop(0)
+            count-=1
+    voice = get(bot.voice_clients)
+    voice.stop()
+    if voice.is_playing() == True: play_next(interaction)
+
+
+async def stop_b(interaction):
+    voice = get(bot.voice_clients)
+    global cur_info
+    cur_info = ''
+    global music_queue
+    music_queue = []
+    global info_queue
+    info_queue = []
+    voice.stop()
 
 
 async def send_message(ctx, cur_info):
     global cur_message
     cur_message = await ctx.send(cur_info)
     global loop_message
+    global pause_mode
     if loop_mode == True: 
-        #loop_message = await ctx.send('Loop mode enabled')
-        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
-        button.callback = loop_change
-        loop_message = await ctx.send(view=View(button))
-    elif loop_mode == False:
-        #loop_message = await ctx.send('Loop mode disabled')
-        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
-        button.callback = loop_change
-        loop_message = await ctx.send(view=View(button))
+        loop_button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+    else:
+        loop_button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+    if pause_mode == True:
+        pause_button = Button(custom_id='button2', label = '►', style=discord.ButtonStyle.green)
+    else:
+        pause_button = Button(custom_id='button2', label = '▌▌', style=discord.ButtonStyle.green)
+    back_button = Button(custom_id='button3', label = '◄◄', style=discord.ButtonStyle.green)
+    forward_button = Button(custom_id='button4', label = '►►', style=discord.ButtonStyle.green)
+    stop_button = Button(custom_id='button5', label = '▇', style=discord.ButtonStyle.green)
+    stop_button.callback = stop_b
+    back_button.callback = back
+    forward_button.callback = forward
+    pause_button.callback = pause_change
+    loop_button.callback = loop_change
+    loop_message = await ctx.send(view=View(loop_button,back_button, pause_button, stop_button, forward_button))
     global skip_message
     await skip_menu(ctx)
     
@@ -461,8 +584,31 @@ def play_next(ctx):
 async def clear(ctx, amount = 100):
     try: await ctx.message.delete()
     except: pass
-    try: await ctx.channel.purge(limit = int(amount))
-    except: await ctx.send('something went wrong', delete_after = 3)
+    try: value = int(amount)
+    except: 
+        await ctx.send('Incorrect value', delete_after = 3)
+        return
+    if value<1:
+        await ctx.send('Incorrect value', delete_after = 3)
+        return
+    else:
+        try: 
+            await ctx.channel.purge(limit = value)
+            await ctx.send('Success', delete_after = 3)
+        except: await ctx.send('Something went wrong', delete_after = 3)
+
+
+@bot.slash_command(pass_context=True, description = 'Clear [N] messages from channel')
+async def clear(ctx, amount:int):
+    if amount<1:
+        await ctx.respond('Incorrect value', delete_after = 3)
+        return
+    else:
+        try: 
+            await ctx.channel.purge(limit = amount)
+            await ctx.respond('Success', delete_after = 3)
+        except: await ctx.respond('Something went wrong', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="Show random meme",description = "Show random meme", aliases=[])
 async def meme(ctx):
@@ -470,7 +616,16 @@ async def meme(ctx):
     except: pass
     response = requests.get('https://some-random-api.ml/meme')
     json_data = json.loads(response.text)
-    await ctx.send(json_data['link'])
+    await ctx.send(json_data['image'])
+
+
+@bot.slash_command(pass_context=True, description = 'Show random meme')
+async def meme(ctx):
+    response = requests.get('https://some-random-api.ml/meme')
+    json_data = json.loads(response.text)
+    await ctx.send(json_data['image'])
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="Show random wink anime gif",description = "Show random wink anime gif", aliases=[])
 async def wink(ctx): 
@@ -480,6 +635,15 @@ async def wink(ctx):
     json_data = json.loads(response.text)
     await ctx.send(json_data['link'])
 
+
+@bot.slash_command(pass_context=True, description = 'Show random wink anime gif')
+async def wink(ctx):
+    response = requests.get('https://some-random-api.ml/animu/wink')
+    json_data = json.loads(response.text)
+    await ctx.send(json_data['link'])
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="Show random pet anime gif",description = "Show random pet anime gif", aliases=[])
 async def pet(ctx): 
     try: await ctx.message.delete()
@@ -488,6 +652,15 @@ async def pet(ctx):
     json_data = json.loads(response.text)
     await ctx.send(json_data['link'])
 
+
+@bot.slash_command(pass_context=True, description = 'Show random pet anime gif')
+async def pet(ctx):
+    response = requests.get('https://some-random-api.ml/animu/pat')
+    json_data = json.loads(response.text)
+    await ctx.send(json_data['link'])
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="Show random hug anime gif",description = "Show random hug anime gif", aliases=[])
 async def hug(ctx):
     try: await ctx.message.delete()
@@ -495,6 +668,15 @@ async def hug(ctx):
     response = requests.get('https://some-random-api.ml/animu/hug')
     json_data = json.loads(response.text)
     await ctx.send(json_data['link'])
+
+
+@bot.slash_command(pass_context=True, description = 'Show random hug anime gif')
+async def hug(ctx):
+    response = requests.get('https://some-random-api.ml/animu/hug')
+    json_data = json.loads(response.text)
+    await ctx.send(json_data['link'])
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="What is this?",description = "What is this?;\naliases = ", aliases=['trap','трап'])
 async def what(ctx):
@@ -506,7 +688,6 @@ async def what(ctx):
     l = len(posts)
     number = random.randint(0,l-1)
     await ctx.send('https://safebooru.org//images/'+str(posts[number]['directory'])+'/'+str(posts[number]['image']))
-
 
 
 
@@ -673,6 +854,24 @@ async def join(ctx):
     await ctx.send(f"Joined {channel}", delete_after = 3)
     await bot.change_presence(status=discord.Status.online, activity=discord.Game(f'{channel}'))
 
+
+@bot.slash_command(pass_context=True, description = 'Bot join to your channel')
+async def join(ctx):
+    channel = ctx.author.voice.channel
+    if not channel:
+        await ctx.respond("You are not connected to a voice channel", delete_after = 3)
+        return
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_connected():
+        await voice.move_to(channel)
+    else:
+        voice = await channel.connect()
+    await ctx.respond('Success', delete_after = 3)
+    await ctx.send(f"Joined {channel}", delete_after = 3)
+    await bot.change_presence(status=discord.Status.online, activity=discord.Game(f'{channel}'))
+    
+
+
 @bot.command(pass_context=True, brief="(url) - Play a song by (url)",description = "Play a song by (url);\naliases = p, pl", aliases=['pl', 'p'])
 async def play(ctx, url: str):
     try: await ctx.message.delete()
@@ -813,7 +1012,6 @@ async def playfirst(ctx, *args):
         await skip_menu(ctx)
 
 
-
 @bot.command(pass_context=True, brief="Skip current song",description = "Skip current song;\naliases = pass", aliases=['pass'])
 async def skip(ctx, count = '1'):
     try: await ctx.message.delete()
@@ -844,6 +1042,36 @@ async def skip(ctx, count = '1'):
     await ctx.send('Music Skipped ' + str(c1) + ' times', delete_after = 3)
 
 
+@bot.slash_command(pass_context=True, description = 'Skip current song')
+async def skip(ctx, count:str):
+    if count == 'all':
+        count = len(music_queue)+1
+    try: count = int(count)
+    except: 
+        await ctx.send('Wrong argument',delete_after = 3)
+        return
+    c1 = count
+    if loop_mode==True:
+        while count>1:
+            music_queue.append(music_queue.pop(0))
+            info_queue.append(info_queue.pop(0))
+            count-=1
+    elif loop_mode==False:
+        if count>len(music_queue)+1:
+            count = len(music_queue)+1
+            c1 = count
+        while count>1:
+            music_queue.pop(0)
+            info_queue.pop(0)
+            count-=1
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice.stop()
+    if voice.is_playing() == True: play_next(ctx)
+    await ctx.send('Music Skipped ' + str(c1) + ' times', delete_after = 3)
+    await ctx.respond('Success', delete_after = 3)
+
+
+
 async def skip_menu(ctx):
     global skip_message
     opt = []
@@ -865,8 +1093,8 @@ async def skip_menu(ctx):
     skip_message = await ctx.send(view=view)
 
 
-@bot.command(pass_context=True, brief="Delete current song from queue",description = "Delete current song from queue;\naliases = q_del, del, delete", aliases=['q_del','del','delete'])
-async def queue_delete(ctx, number = '1'):
+@bot.command(pass_context=True, brief="Delete current song from queue",description = "Delete current song from queue;\naliases = q_del, del", aliases=['q_del','del'])
+async def delete(ctx, number = '1'):
     try: await ctx.message.delete()
     except: pass
     try: number = int(number)
@@ -885,15 +1113,41 @@ async def queue_delete(ctx, number = '1'):
     await ctx.send('The song deleted successfully', delete_after=3)
 
 
+@bot.slash_command(pass_context=True, description = 'Delete current song from queue')
+async def delete(ctx, number:int):
+    if number>len(info_queue)+1 or number<1:
+        await ctx.send('The number is out of range', delete_after = 3)
+        return
+    if number==1:
+        if loop_mode == True:
+            music_queue.pop(-1)
+            info_queue.pop(-1)
+        await skip(ctx)
+    else:
+        music_queue.pop(number-2)
+        info_queue.pop(number-2)
+    await ctx.send('The song deleted successfully', delete_after=3)
+    await ctx.respond('Success', delete_after = 3)
+
+
+
 @bot.command(pass_context=True, brief="Output current song",description = "Output current song;\naliases = ?", aliases=['?'])
-async def now(ctx, *args):
+async def now(ctx):
     try: await ctx.message.delete()
     except: pass
     try: await ctx.send(cur_info, delete_after = 60)
     except: await ctx.send('Music is not playing', delete_after = 3)
 
+
+@bot.slash_command(pass_context=True, description = 'Output current song')
+async def now(ctx, playlistname:str):
+    try: await ctx.send(cur_info, delete_after = 60)
+    except: await ctx.send('Music is not playing', delete_after = 3)
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="Enable/Disable loop mode",description = "Enable/Disable loop mode;\naliases = cycle", aliases=['cycle'])
-async def loop(ctx, *args):
+async def loop(ctx):
     global loop_mode
     global loop_message
     try: await ctx.message.delete()
@@ -922,6 +1176,35 @@ async def loop(ctx, *args):
             music_queue.append(source)
 
 
+@bot.slash_command(pass_context=True, description = 'Enable/Disable loop mode')
+async def loop(ctx):
+    global loop_mode
+    global loop_message
+    if loop_mode == True: 
+        loop_mode = False
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
+        button = Button(custom_id='button1', label='Loop mode disabled', style=discord.ButtonStyle.red)
+    elif loop_mode == False: 
+        loop_mode = True
+        with open('./loop_mode.json','w') as lm_file:
+            json.dump(loop_mode, lm_file)
+        button = Button(custom_id='button1', label='Loop mode enabled', style=discord.ButtonStyle.green)
+    button.callback = loop_change
+    try: await loop_message.edit(view=View(button))
+    except: pass
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    if voice and voice.is_playing():
+        if music_queue:
+            if music_queue[-1]!=source:
+                info_queue.append(cur_info)
+                music_queue.append(source)
+        elif not music_queue:
+            info_queue.append(cur_info)
+            music_queue.append(source)
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="(name) - Create playlist named (name)",description = "Create playlist named (name);\naliases = pl_create, create_playlist", aliases=['pl_create','create_playlist'])
 @commands.has_permissions(administrator=True)
 async def playlist_create(ctx, playlistname):
@@ -936,6 +1219,20 @@ async def playlist_create(ctx, playlistname):
         except:
             await ctx.send('Failed to create playlist', delete_after = 3)
 
+
+@bot.slash_command(pass_context=True, description = 'Create playlist named (name)')
+async def playlist_create(ctx, playlistname:str):
+    if os.path.exists('./playlists/'+str(playlistname)):
+        await ctx.send('A playlist with the same name already exists', delete_after = 3)
+    else:
+        try: 
+            os.mkdir('./playlists/'+str(playlistname))
+            await ctx.send('Playlist created successfully', delete_after = 3)
+        except:
+            await ctx.send('Failed to create playlist', delete_after = 3)
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="Show playlists",description = "Show playlists;\naliases = pls, pl_list", aliases=['pls','pl_list'])
 async def playlists(ctx):
     try: await ctx.message.delete()
@@ -946,7 +1243,18 @@ async def playlists(ctx):
     for dir in dirs:
         out_string+='\n'+str(dir)
     await ctx.send(out_string, delete_after = 60)
-    pass
+
+
+@bot.slash_command(pass_context=True, description = 'Show playlists')
+async def playlists(ctx):
+    dirname = './playlists'
+    dirs = natsorted(os.listdir(dirname))
+    out_string = 'Current playlist count: ' + str(len(dirs))
+    for dir in dirs:
+        out_string+='\n'+str(dir)
+    await ctx.send(out_string, delete_after = 60)
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="(name) (url) - Add song by (url) to playlist",description = "Add song by (url) to playlist named (name);\naliases = pl_add", aliases=['pl_add'])
 @commands.has_permissions(administrator=True)
@@ -977,6 +1285,35 @@ async def playlist_add(ctx, playlist, url):
     info_file.write(playing_string)
     info_file.close()
 
+
+@bot.slash_command(pass_context=True, description = 'Add song by (url) to playlist')
+async def playlist_add(ctx, playlist:str, url:str):
+    if not os.path.exists('./playlists/'+str(playlist)):
+        await ctx.send("Playlist doesn't exist", delete_after = 3)
+        return
+    url = url.rsplit('&')[0]
+    videosSearch = VideosSearch(url, limit = 1)
+    def fname_gen(i):
+        fname = './playlists/'+str(playlist)+'/'+str(i)+'.webm'
+        fname1 = './playlists/'+str(playlist)+'/'+str(i)+'.info'
+        if os.path.isfile(fname) == False: return [fname, fname1]
+        else: return fname_gen(i+1)
+    fnames = fname_gen(1)
+
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'outtmpl': fnames[0]
+    }
+    with youtube_dl.YoutubeDL(ydl_opts) as ydl:
+        ydl.download([url])
+    res = videosSearch.result()['result'][0]
+    playing_string = str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(url)
+    info_file = open(fnames[1], 'w+', encoding="utf-8")
+    info_file.write(playing_string)
+    info_file.close()
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="(playlist) (number) - Remove song from playlist",description = "Remove song by (number) from playlist named (playlist);\naliases = pl_rm_s", aliases=['pl_rm_s'])
 @commands.has_permissions(administrator=True)
 async def playlist_remove_song(ctx, playlist, number):
@@ -994,6 +1331,24 @@ async def playlist_remove_song(ctx, playlist, number):
         fileext = file.rsplit('.')[1]
         if int(filename)>int(number):
             os.rename('./playlists/'+str(playlist)+'/'+filename+'.'+fileext, './playlists/'+str(playlist)+'/'+str(int(filename)-1)+'.'+fileext)
+
+
+@bot.slash_command(pass_context=True, description = 'Remove song from playlist')
+async def playlist_remove_song(ctx, playlist:str, number:int):
+    if not os.path.exists('./playlists/'+str(playlist)):
+        await ctx.send("Playlist doesn't exist", delete_after = 3)
+        return
+    filename = './playlists/'+str(playlist) + '/'+str(number) + '.webm'
+    filename1 = './playlists/'+str(playlist) + '/'+str(number) + '.info'
+    if os.path.isfile(filename): os.remove(filename)
+    if os.path.isfile(filename1):os.remove(filename1)
+    for file in natsorted(os.listdir('./playlists/'+str(playlist))):
+        filename = file.rsplit('.')[0]
+        fileext = file.rsplit('.')[1]
+        if int(filename)>int(number):
+            os.rename('./playlists/'+str(playlist)+'/'+filename+'.'+fileext, './playlists/'+str(playlist)+'/'+str(int(filename)-1)+'.'+fileext)
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="(name) - Show info about playlist named (name)",description = "Show info about playlist named (name);\naliases = pl_i, pl_info", aliases=['pl_i','pl_info'])
 async def playlist_info(ctx, playlist, arg = 'not'):
@@ -1021,7 +1376,32 @@ async def playlist_info(ctx, playlist, arg = 'not'):
         try: await ctx.send(info,delete_after = 60)
         except: pass
 
-                        
+
+@bot.slash_command(pass_context=True, description = 'Show info about playlist named')
+async def playlist_info(ctx, playlist:str, arg = 'not'):
+    if not os.path.exists('./playlists/'+str(playlist)):
+        await ctx.send("Playlist doesn't exist", delete_after = 3)
+        return
+    out_string =''
+    info = ''
+    for file in natsorted(os.listdir('./playlists/'+str(playlist))):
+        if file.endswith(".info"):
+            with open('./playlists/'+str(playlist)+'/'+file,'r', encoding="utf-8") as file:
+                fname = os.path.splitext(file.name)[0].rsplit('/')[-1]
+                if arg == 'all' or arg == 'full': 
+                    out_string = fname +'. ' + file.read()
+                    await ctx.send(out_string, delete_after = 60)
+                else: 
+                    out_string = fname +'. ' + file.read().split('\n')[0]
+                    info+=out_string+'\n'
+                    if len(info)>1300: 
+                        await ctx.send(info, delete_after = 60)
+                        info = ''
+    if arg!='all' and arg!='full':
+        try: await ctx.send(info,delete_after = 60)
+        except: pass
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="(name) - Move playlist named (name) to queue",description = "Move playlist named (name) to queue;\naliases = pl_p", aliases=['pl_p'])
 async def playlist_play(ctx, playlist):
@@ -1048,6 +1428,33 @@ async def playlist_play(ctx, playlist):
         global skip_message
         await skip_message.delete()
         await skip_menu(ctx)
+
+
+@bot.slash_command(pass_context=True, description = 'Move playlist named (name) to queue')
+async def playlist_play(ctx, playlist:str):
+    if not os.path.exists('./playlists/'+str(playlist)):
+        await ctx.send("Playlist doesn't exist", delete_after = 3)
+        return
+    channel = ctx.message.author.voice.channel
+    voice = get(bot.voice_clients, guild=ctx.guild)
+    voice = await preparation(ctx, voice, channel)
+    
+    dir = './playlists/'+playlist+'/'
+    files = natsorted(os.listdir(dir))
+    for file in files:
+        if file.endswith('.info'):
+            with open(dir+file,'r', encoding="utf-8") as f:
+                playing_string = 'Now playing: '+f.read()
+                info_queue.append(playing_string)
+        elif file.endswith('.webm'):
+            music_queue.append(dir+str(file))
+    if voice.is_playing() == False: play_next(ctx)
+    else: 
+        global skip_message
+        await skip_message.delete()
+        await skip_menu(ctx)
+    await ctx.respond('Success', delete_after = 3)
+
 
 @bot.command(pass_context=True, brief="[all] Displays current songs in queue",description = "Displays current songs in queue. If you need to show full info: use queue all/full;\naliases = q", aliases=['q'])
 async def queue(ctx, arg = 'True'):
@@ -1083,7 +1490,43 @@ async def queue(ctx, arg = 'True'):
                 await ctx.send(all_info, delete_after = 120)
                 all_info = ''
         await ctx.send(all_info, delete_after = 120)
-        
+
+
+@bot.slash_command(pass_context=True, description = 'Displays current songs in queue')
+async def queue(ctx, arg:str='not_all'):
+    if arg == 'all' or arg =='full': param = False
+    else:param = True
+    all_info =''
+    if cur_info: 
+        try: 
+            if param == False: await ctx.send('1. '+cur_info.split('Now playing: ')[1]+'\n',delete_after =120)
+            else: all_info+='1. '+cur_info.split('Now playing: ')[1].split('\n')[0]+'\n'
+        except: 
+            await ctx.send('Music is not playing', delete_after = 3)
+            return
+    else:
+        await ctx.send('Music is not playing', delete_after = 3)
+        return
+    
+    if param == False:
+        i = 2
+        for info in info_queue:
+            info = str(i) + '. ' + info.split('Now playing: ')[1]
+            i+=1
+            await ctx.send(info, delete_after = 120)
+    elif param == True: 
+        i = 2
+        for info in info_queue:
+            info = str(i) + '. ' + info.split('Now playing: ')[1].split('\n')[0]+'\n'
+            i+=1
+            all_info+=info
+            if len(all_info)>1700:
+                await ctx.send(all_info, delete_after = 120)
+                all_info = ''
+        await ctx.send(all_info, delete_after = 120)
+    await ctx.respond('Success', delete_after = 3)
+
+
 
 
 @bot.command(pass_context=True, brief="(name) - Bot searchs music by (name)",description = "Bot searchs music by (name);\naliases = se, find", aliases=['se', 'find'])
@@ -1099,7 +1542,19 @@ async def search(ctx, *args):
     for i in range (0,l):
         res = videosSearch.result()['result'][i]
         await ctx.send(str(i+1) + ". "+ str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(res['link']), delete_after = 60)
-        
+
+
+@bot.slash_command(pass_context=True, description = 'Bot searchs music')
+async def search(ctx, response:str):
+    l = 5
+    global videosSearch
+    videosSearch = VideosSearch(response, limit = l)
+    for i in range (0,l):
+        res = videosSearch.result()['result'][i]
+        await ctx.send(str(i+1) + ". "+ str(res['title'])+';\t'+ str(res['duration'])+';\t'+ str(res['viewCount']['text']) +'\n'+ str(res['link']), delete_after = 60)
+    await ctx.respond('Success', delete_after = 3)
+
+
 @bot.command(pass_context=True, brief="Choose searched music", aliases=['-'])
 async def choose(ctx, choosed):
     try: await ctx.message.delete()
@@ -1140,14 +1595,6 @@ async def choose(ctx, choosed):
 async def fix(ctx):
     try: await ctx.message.delete()
     except: pass
-    # try: voice = get(bot.voice_clients, guild=ctx.guild)
-    # except: pass
-    # try: 
-    #     channel = ctx.message.author.voice.channel
-    #     voice = await channel.connect()
-    # except: pass
-    # try: voice.stop()
-    # except: pass
     global cur_info
     global source
     global info_queue
@@ -1176,8 +1623,41 @@ async def fix(ctx):
     except: pass
     music_queue = old_music_queue
     info_queue = old_info_queue
-
     play_next(ctx)
+
+
+@bot.slash_command(pass_context=True, description = 'Fix some problems')
+async def fix(ctx):
+    global cur_info
+    global source
+    global info_queue
+    global music_queue
+    if cur_info and source:
+        info_queue.insert(0,cur_info)
+        music_queue.insert(0,source)
+    old_info_queue = info_queue
+    old_music_queue = music_queue
+    try:
+        msg = await ctx.channel.fetch_message(cur_message.id)
+        await msg.delete()
+        loop_msg = await ctx.channel.fetch_message(loop_message.id)
+        await loop_msg.delete()
+        skip_msg = await ctx.channel.fetch_message(skip_message.id)
+        await skip_msg.delete()
+    except: pass
+    try: 
+        await stop(ctx)
+        await leave(ctx)
+        await join(ctx)
+    except: pass
+    try: 
+        await join(ctx)
+        await stop(ctx)
+    except: pass
+    music_queue = old_music_queue
+    info_queue = old_info_queue
+    play_next(ctx)
+    await ctx.respond('Success', delete_after = 3)
 
 
 if __name__=="__main__":
